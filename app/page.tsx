@@ -71,7 +71,7 @@ export default function Home() {
     }
 
     // Change this to your public server domain
-    const socket: Socket = io("https://geolocate-61im.onrender.com");
+    const socket: Socket = io("https://eaclocate.onrender.com");
     socketRef.current = socket;
 
     socket.on("connect", () => setStatusHtml("Connected to server"));
