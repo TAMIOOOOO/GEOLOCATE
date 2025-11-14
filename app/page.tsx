@@ -1,11 +1,9 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import * as turf from "@turf/turf";
-import { Geolocation, Position } from "@capacitor/geolocation";
-import { JSX } from "react/jsx-runtime";
+import type { Position } from "@capacitor/geolocation";
 
 type LocationUpdate = {
   id: string;
@@ -14,15 +12,13 @@ type LocationUpdate = {
   accuracy: number;
 };
 
-export default function Home(): JSX.Element {
-  // Refs
+export default function Home() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const leafletMapRef = useRef<any>(null);
   const markersRef = useRef<Record<string, any>>({});
   const socketRef = useRef<Socket | null>(null);
   const watchIdRef = useRef<number | null>(null);
 
-  // State
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
@@ -30,7 +26,6 @@ export default function Home(): JSX.Element {
   const [users, setUsers] = useState<Record<string, LocationUpdate>>({});
   const [Leaflet, setLeaflet] = useState<any>(null);
 
-  // EAC polygon points (lat, lon)
   const eacPolygon: Array<[number, number]> = [
     [14.582820, 120.986910],
     [14.582820, 120.987050],
@@ -45,15 +40,15 @@ export default function Home(): JSX.Element {
 
   const mapCenter: [number, number] = [14.582750, 120.987030];
 
-  // Load Leaflet dynamically (client-side only)
+  // Dynamically import Leaflet (client-side only)
   useEffect(() => {
+    if (typeof window === "undefined") return;
     import("leaflet").then((L) => {
       setLeaflet(L);
       require("leaflet/dist/leaflet.css");
     });
   }, []);
 
-  // Initialize map and socket
   useEffect(() => {
     if (!started || !Leaflet || !mapContainerRef.current) return;
 
@@ -61,9 +56,7 @@ export default function Home(): JSX.Element {
     const map = L.map(mapContainerRef.current, { center: mapCenter, zoom: 18 });
     leafletMapRef.current = map;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 80 }).addTo(map);
-
     L.polygon(eacPolygon, { color: "blue", fillColor: "#3f83f8", fillOpacity: 0.3 }).addTo(map);
-    map.setView(mapCenter, 18);
 
     function createOrUpdateMarker(id: string, lat: number, lon: number) {
       const existing = markersRef.current[id];
@@ -77,8 +70,8 @@ export default function Home(): JSX.Element {
       return marker;
     }
 
-    // Connect socket
-    const socket: Socket = io("http://localhost:3001");
+    // Change this to your public server domain
+    const socket: Socket = io("eacgeoloc.netlify.app");
     socketRef.current = socket;
 
     socket.on("connect", () => setStatusHtml("Connected to server"));
@@ -93,9 +86,7 @@ export default function Home(): JSX.Element {
 
       const marker = createOrUpdateMarker(id, lat, lon);
       marker.bindPopup(
-        `${id}<br>📍 ${inside ? "✅ Inside" : "❌ Outside"}<br>📏 ${
-          inside ? "Within polygon" : "Outside polygon"
-        }`
+        `${id}<br>📍 ${inside ? "✅ Inside" : "❌ Outside"}<br>📏 ${inside ? "Within polygon" : "Outside polygon"}`
       );
 
       if (id === userId) {
@@ -121,7 +112,6 @@ export default function Home(): JSX.Element {
       });
     });
 
-    // WatchPosition for continuous tracking
     if (typeof window !== "undefined" && navigator.geolocation) {
       watchIdRef.current = navigator.geolocation.watchPosition(
         (position) => {
@@ -145,7 +135,7 @@ export default function Home(): JSX.Element {
   }, [started, Leaflet, userId]);
 
   const handleRemoveUser = (id: string) => {
-    socketRef.current?.emit("removeUser", id); // Server should handle removal
+    socketRef.current?.emit("removeUser", id);
   };
 
   const handleStart = () => {
@@ -158,15 +148,11 @@ export default function Home(): JSX.Element {
 
   return (
     <div className="flex min-h-screen bg-zinc-50 dark:bg-black font-sans">
-      {/* Sidebar */}
       <aside className="w-64 bg-white dark:bg-gray-900 p-4 border-r border-gray-200 dark:border-gray-700">
         <h2 className="text-lg font-semibold mb-4">Connected Users</h2>
         <ul className="space-y-2">
           {Object.entries(users).map(([id, user]) => (
-            <li
-              key={id}
-              className="flex justify-between items-center p-2 rounded bg-gray-100 dark:bg-gray-800"
-            >
+            <li key={id} className="flex justify-between items-center p-2 rounded bg-gray-100 dark:bg-gray-800">
               <div>
                 <span className="font-medium">{id}</span>
                 <br />
@@ -174,10 +160,7 @@ export default function Home(): JSX.Element {
                   Lat: {user.lat.toFixed(5)}, Lon: {user.lon.toFixed(5)}
                 </span>
               </div>
-              <button
-                className="text-red-500 text-sm hover:underline"
-                onClick={() => handleRemoveUser(id)}
-              >
+              <button className="text-red-500 text-sm hover:underline" onClick={() => handleRemoveUser(id)}>
                 Remove
               </button>
             </li>
@@ -186,7 +169,6 @@ export default function Home(): JSX.Element {
         </ul>
       </aside>
 
-      {/* Main */}
       <main className="flex-1 flex flex-col items-center justify-start py-6 px-4">
         {!started ? (
           <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md w-full max-w-md text-center">
@@ -202,19 +184,12 @@ export default function Home(): JSX.Element {
                 Start
               </button>
             </div>
-            <p className="text-xs text-gray-500 mt-2">Uses browser or Capacitor geolocation.</p>
+            <p className="text-xs text-gray-500 mt-2">Uses browser geolocation.</p>
           </div>
         ) : (
           <>
-            <div
-              ref={mapContainerRef}
-              id="map"
-              style={{ height: "80vh", width: "100%", borderRadius: 8 }}
-            />
-            <div
-              className="mt-2 px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-sm"
-              dangerouslySetInnerHTML={{ __html: statusHtml }}
-            />
+            <div ref={mapContainerRef} id="map" style={{ height: "80vh", width: "100%", borderRadius: 8 }} />
+            <div className="mt-2 px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-sm" dangerouslySetInnerHTML={{ __html: statusHtml }} />
           </>
         )}
       </main>
