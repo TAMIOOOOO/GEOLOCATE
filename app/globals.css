@@ -33,3 +33,40 @@ body {
 .animate-fadeInOut {
   animation: fadeInOut 5s ease forwards;
 }
+
+/* Ensure Leaflet map stays behind your UI elements */
+.leaflet-container {
+  z-index: 0 !important;
+}
+
+.leaflet-top, 
+.leaflet-bottom {
+  z-index: 1 !important;
+}
+
+.leaflet-control {
+  z-index: 2 !important;
+}
+
+.leaflet-popup {
+  z-index: 3 !important;
+}
+
+.leaflet-marker-icon {
+  z-index: 4 !important;
+}
+
+/* Specific fix for your layout */
+.leaflet-map-pane,
+.leaflet-tile-pane,
+.leaflet-overlay-pane {
+  z-index: 0 !important;
+}
+
+.leaflet-marker-pane {
+  z-index: 1 !important;
+}
+
+.leaflet-popup-pane {
+  z-index: 2 !important;
+}

@@ -14,10 +14,179 @@ type LocationUpdate = {
   active?: boolean;
 };
 
-type Toast = {
+type Notification = {
   id: string;
+  type: 'enter' | 'exit' | 'info' | 'user_connected' | 'user_disconnected';
   message: string;
+  timestamp: string;
+  userId?: string;
+  read: boolean;
 };
+
+// Notification Center Component
+function NotificationCenter({ 
+  isOpen, 
+  onClose, 
+  notifications, 
+  onMarkAsRead, 
+  onClearAll 
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  notifications: Notification[];
+  onMarkAsRead: (id: string) => void;
+  onClearAll: () => void;
+}) {
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'enter':
+        return '🟢';
+      case 'exit':
+        return '🔴';
+      case 'user_connected':
+        return '🔵';
+      case 'user_disconnected':
+        return '⚫';
+      default:
+        return 'ℹ️';
+    }
+  };
+
+  const filterNotifications = (type: string) => {
+    if (type === 'all') return notifications;
+    return notifications.filter(n => n.type === type);
+  };
+
+  const [filter, setFilter] = useState<'all' | 'enter' | 'exit' | 'user_connected' | 'user_disconnected'>('all');
+  const filteredNotifications = filterNotifications(filter);
+
+  return (
+    <>
+      {/* Overlay */}
+      <div
+        className={`fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity duration-300 ${
+          isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={onClose}
+      />
+
+      {/* Notification Panel */}
+      <div
+        className={`fixed right-0 top-0 h-full w-96 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-xl z-50 transition-transform duration-300 ease-in-out ${
+          isOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <div className="flex flex-col h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center">
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Notifications</h2>
+              {unreadCount > 0 && (
+                <span className="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                  {unreadCount}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={onClearAll}
+                className="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                Clear All
+              </button>
+              <button
+                onClick={onClose}
+                className="p-1 rounded-md text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Tabs */}
+          <div className="flex border-b border-gray-200 dark:border-gray-700">
+            {(['all', 'enter', 'exit', 'user_connected', 'user_disconnected'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setFilter(tab)}
+                className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                  filter === tab
+                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 border-b-2 border-blue-600'
+                    : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                {tab.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+              </button>
+            ))}
+          </div>
+
+          {/* Notifications List */}
+          <div className="flex-1 overflow-y-auto z-10000">
+            {filteredNotifications.length > 0 ? (
+              <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                {filteredNotifications.map((notification) => (
+                  <div
+                    key={notification.id}
+                    className={`p-4 cursor-pointer transition-colors ${
+                      notification.read 
+                        ? 'bg-white dark:bg-gray-900' 
+                        : 'bg-blue-50 dark:bg-blue-900/10'
+                    } hover:bg-gray-50 dark:hover:bg-gray-800`}
+                    onClick={() => onMarkAsRead(notification.id)}
+                  >
+                    <div className="flex items-start space-x-3">
+                      <span className="text-lg">{getNotificationIcon(notification.type)}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm ${
+                          notification.read 
+                            ? 'text-gray-600 dark:text-gray-400' 
+                            : 'text-gray-900 dark:text-gray-100 font-medium'
+                        }`}>
+                          {notification.message}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {new Date(notification.timestamp).toLocaleString()}
+                        </p>
+                        {notification.userId && (
+                          <span className="inline-block mt-1 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded">
+                            User: {notification.userId}
+                          </span>
+                        )}
+                      </div>
+                      {!notification.read && (
+                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
+                <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 17h5l-5 5v-5zM8.5 14.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z" />
+                </svg>
+                <p className="text-lg">No notifications</p>
+                <p className="text-sm mt-1">Notifications will appear here</p>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="p-4 border-t border-gray-200 dark:border-gray-700 z-1000">
+            <div className="flex justify-between items-center text-sm text-gray-500 dark:text-gray-400">
+              <span>Total: {notifications.length}</span>
+              <span>Unread: {unreadCount}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
 
 // Separate Sidebar Component
 function Sidebar({ users, isOpen, onClose }: {
@@ -36,7 +205,7 @@ function Sidebar({ users, isOpen, onClose }: {
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-screen w-80 bg-white dark:bg-gray-900 p-4 border-r border-gray-200 dark:border-gray-700 z-500 transition-transform duration-300 ease-in-out lg:static lg:z-10 lg:translate-x-0 lg:h-screen ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:hidden'
+        className={`fixed left-0 top-0 h-100% w-80 bg-white dark:bg-gray-900 p-4 border-r border-gray-200 dark:border-gray-700 z-5000 transition-transform duration-300 ease-in-out lg:static lg:z-10 lg:translate-x-0 lg:h-screen ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:hidden'
           }`}
       >
         <div className="flex justify-between items-center mb-4 lg:hidden">
@@ -126,8 +295,9 @@ export default function Admin() {
 
   const [users, setUsers] = useState<Record<string, LocationUpdate>>({});
   const [Leaflet, setLeaflet] = useState<any>(null);
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
 
   const eacPolygon: Array<[number, number]> = [
     [14.582820, 120.986910],
@@ -149,6 +319,23 @@ export default function Admin() {
     import("leaflet").then((L) => setLeaflet(L));
   }, []);
 
+  // Load notifications from localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("adminNotifications");
+      if (saved) {
+        setNotifications(JSON.parse(saved));
+      }
+    }
+  }, []);
+
+  // Save notifications to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined" && notifications.length > 0) {
+      localStorage.setItem("adminNotifications", JSON.stringify(notifications));
+    }
+  }, [notifications]);
+
   // Initialize Leaflet Map
   const mapInitializedRef = useRef(false);
 
@@ -156,7 +343,7 @@ export default function Admin() {
     if (!Leaflet || !mapContainerRef.current || mapInitializedRef.current) return;
 
     const L = Leaflet;
-    mapInitializedRef.current = true; // Mark as initialized
+    mapInitializedRef.current = true;
 
     const map = L.map(mapContainerRef.current, {
       center: mapCenter,
@@ -164,7 +351,7 @@ export default function Admin() {
       tap: false,
       dragging: true,
       scrollWheelZoom: true,
-      zoomControl: false, // ← This disables default
+      zoomControl: false,
       doubleClickZoom: true
     });
     leafletMapRef.current = map;
@@ -196,7 +383,7 @@ export default function Admin() {
     return () => {
       window.removeEventListener('resize', handleResize);
       map.remove();
-      mapInitializedRef.current = false; // Reset on cleanup
+      mapInitializedRef.current = false;
     };
   }, [Leaflet]);
 
@@ -208,6 +395,35 @@ export default function Admin() {
     return false;
   };
 
+  // Add notification
+  const addNotification = (type: Notification['type'], message: string, userId?: string) => {
+    const newNotification: Notification = {
+      id: Date.now().toString(),
+      type,
+      message,
+      timestamp: new Date().toISOString(),
+      userId,
+      read: false
+    };
+
+    setNotifications(prev => [newNotification, ...prev.slice(0, 199)]); // Keep last 200
+  };
+
+  // Mark notification as read
+  const markNotificationAsRead = (id: string) => {
+    setNotifications(prev => 
+      prev.map(notification => 
+        notification.id === id ? { ...notification, read: true } : notification
+      )
+    );
+  };
+
+  // Clear all notifications
+  const clearAllNotifications = () => {
+    setNotifications([]);
+    localStorage.removeItem("adminNotifications");
+  };
+
   const handleLogout = () => {
     localStorage.removeItem("user");
     window.location.href = "/";
@@ -217,6 +433,10 @@ export default function Admin() {
     setSidebarOpen(!sidebarOpen);
   };
 
+  const toggleNotificationCenter = () => {
+    setNotificationCenterOpen(!notificationCenterOpen);
+  };
+
   const closeSidebar = () => {
     setSidebarOpen(false);
   };
@@ -224,7 +444,7 @@ export default function Admin() {
   // Close sidebar on desktop when window is resized to larger size
   useEffect(() => {
     const handleResize = () => {
-      if (window.innerWidth >= 1024) { // lg breakpoint
+      if (window.innerWidth >= 1024) {
         setSidebarOpen(false);
       }
     };
@@ -233,18 +453,49 @@ export default function Admin() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Update user markers on map
+  useEffect(() => {
+    if (!Leaflet || !leafletMapRef.current) return;
+
+    const L = Leaflet;
+    
+    // Clear existing markers
+    Object.values(markersRef.current).forEach(marker => {
+      leafletMapRef.current.removeLayer(marker);
+    });
+    markersRef.current = {};
+
+    // Create markers for all users
+    Object.entries(users).forEach(([userId, user]) => {
+      if (user.lat && user.lon) {
+        const marker = L.circleMarker([user.lat, user.lon], {
+          radius: 6,
+          color: user.active ? '#22c55e' : '#ef4444',
+          fillColor: user.active ? '#16a34a' : '#dc2626',
+          fillOpacity: 0.8,
+          weight: 2
+        }).addTo(leafletMapRef.current);
+
+        marker.bindPopup(`
+          <div class="text-sm">
+            <strong>${userId}</strong><br>
+            📍 ${user.lastInside ? "Inside" : "Outside"}<br>
+            Status: ${user.active ? "Active" : "Inactive"}<br>
+            <small>Updated: ${user.lastSeen ? new Date(user.lastSeen).toLocaleTimeString() : "Never"}</small>
+          </div>
+        `);
+
+        markersRef.current[userId] = marker;
+      }
+    });
+  }, [users, Leaflet]);
+
   // Initialize Socket.IO and handle events
   useEffect(() => {
     if (!Leaflet) return;
 
     const socket = io("http://localhost:3000");
     socketRef.current = socket;
-
-    const addToast = (message: string) => {
-      const id = Date.now().toString();
-      setToasts((prev) => [...prev, { id, message }]);
-      setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 5000);
-    };
 
     socket.on("currentUsers", (existingUsers: Record<string, LocationUpdate>) => {
       const updatedUsers: Record<string, LocationUpdate> = {};
@@ -264,8 +515,13 @@ export default function Admin() {
       });
     });
 
-    socket.on("userEntered", ({ id }) => addToast(`User ${id} entered the building`));
-    socket.on("userExited", ({ id }) => addToast(`User ${id} exited the building`));
+    socket.on("userEntered", ({ id, time }) => {
+      addNotification('enter', `User ${id} entered the building`, id);
+    });
+
+    socket.on("userExited", ({ id, time }) => {
+      addNotification('exit', `User ${id} left the building`, id);
+    });
 
     socket.on("userDisconnected", (id: string) => {
       if (markersRef.current[id] && leafletMapRef.current) {
@@ -277,6 +533,14 @@ export default function Admin() {
         delete copy[id];
         return copy;
       });
+      addNotification('user_disconnected', `User ${id} disconnected`, id);
+    });
+
+    // Listen for new user connections
+    socket.on("userConnected", (data: any) => {
+      if (data.id) {
+        addNotification('user_connected', `User ${data.id} connected`, data.id);
+      }
     });
 
     return () => {
@@ -284,13 +548,23 @@ export default function Admin() {
     };
   }, [Leaflet]);
 
+  const unreadCount = notifications.filter(n => !n.read).length;
+
   return (
     <div className="flex flex-col min-h-screen bg-zinc-50 dark:bg-black font-sans">
       {/* Main Header */}
       <header className="w-full bg-white dark:bg-gray-900 shadow-md px-4 py-3 sticky top-0 z-50 flex justify-between items-center">
-        {/* Left section - Hamburger Button (visible on mobile/tablet, hidden on desktop) */}
-        <div className="flex-shrink-0 lg:invisible"> {/* Changed from lg:hidden to lg:invisible */}
-
+        {/* Left section - Hamburger Button */}
+        <div className="flex-shrink-0 lg:invisible">
+          <button
+            onClick={toggleSidebar}
+            className="p-2 rounded-md text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            aria-label="Toggle sidebar"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
         </div>
 
         {/* Center section - Title */}
@@ -300,8 +574,25 @@ export default function Admin() {
           </h1>
         </div>
 
-        {/* Right section - Logout Button */}
-        <div className="flex-shrink-0">
+        {/* Right section - Buttons */}
+        <div className="flex-shrink-0 flex items-center space-x-2">
+          {/* Notifications Button */}
+          <button
+            onClick={toggleNotificationCenter}
+            className="relative p-2 rounded-md text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            aria-label="Notifications"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-5 5v-5zM8.5 14.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z" />
+            </svg>
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                {unreadCount}
+              </span>
+            )}
+          </button>
+
+          {/* Logout Button */}
           <button
             onClick={handleLogout}
             className="px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-sm md:text-base"
@@ -319,10 +610,15 @@ export default function Admin() {
         {/* Map Container */}
         <main className="flex-1 flex flex-col w-full">
           {/* Mobile Info Bar */}
-          <div className=" bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
+          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
             <div className="flex justify-between items-center text-sm">
               <span className="text-gray-600 dark:text-gray-400">
                 {Object.keys(users).length} user{Object.keys(users).length !== 1 ? 's' : ''}
+                {unreadCount > 0 && (
+                  <span className="ml-2 text-red-500">
+                    • {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
+                  </span>
+                )}
               </span>
               <button
                 onClick={toggleSidebar}
@@ -343,22 +639,14 @@ export default function Admin() {
         </main>
       </div>
 
-      {/* Toasts - Responsive positioning */}
-      <div className="fixed top-16 right-2 left-2 sm:right-4 sm:left-auto z-0 space-y-2 max-w-sm mx-auto sm:mx-0">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className="bg-red-500 text-white px-4 py-3 rounded-lg shadow-lg transform transition-all duration-300 animate-in slide-in-from-right-8"
-          >
-            <div className="flex items-center">
-              <svg className="w-4 h-4 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-              <span className="text-sm">{t.message}</span>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Notification Center */}
+      <NotificationCenter
+        isOpen={notificationCenterOpen}
+        onClose={() => setNotificationCenterOpen(false)}
+        notifications={notifications}
+        onMarkAsRead={markNotificationAsRead}
+        onClearAll={clearAllNotifications}
+      />
     </div>
   );
 }

@@ -62,6 +62,9 @@ const eacPolygon = [
   [14.582820, 120.986910],
 ];
 
+// Track user connection states to detect new connections
+const connectedUsers = new Map();
+
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
@@ -78,7 +81,20 @@ io.on("connection", (socket) => {
     if (user && user.password === password) {
       user.socketId = socket.id;
       writeUsers(users);
+      
+      // Track this user as connected
+      connectedUsers.set(schoolId, {
+        socketId: socket.id,
+        connectedAt: new Date().toISOString()
+      });
+
       socket.emit("loginSuccess", { schoolId, isAdmin: user.isAdmin || false });
+      
+      // Notify all clients about new user connection (for admin dashboard)
+      io.emit("userConnected", { 
+        id: schoolId, 
+        time: new Date().toISOString() 
+      });
     } else {
       socket.emit("loginFailed", "Invalid School ID or Password");
     }
@@ -118,14 +134,28 @@ io.on("connection", (socket) => {
 
     const updatedUser = updateUserLocation(schoolId, lat, lon, accuracy, inside, socket.id);
 
-    if (updatedUser) io.emit("userLocationUpdate", { [updatedUser.schoolId]: updatedUser });
+    if (updatedUser) {
+      // Broadcast to all clients
+      io.emit("userLocationUpdate", { [updatedUser.schoolId]: updatedUser });
+    }
 
+    // Check for geofence transitions and emit notifications
     if (!wasInside && inside) {
-      io.emit("userEntered", { id: schoolId, time: new Date().toISOString() });
+      // User entered the building
+      io.emit("userEntered", { 
+        id: schoolId, 
+        time: new Date().toISOString() 
+      });
+      console.log(`User ${schoolId} entered the building`);
     }
 
     if (wasInside && !inside) {
-      io.emit("userExited", { id: schoolId, time: new Date().toISOString() });
+      // User exited the building
+      io.emit("userExited", { 
+        id: schoolId, 
+        time: new Date().toISOString() 
+      });
+      console.log(`User ${schoolId} exited the building`);
     }
   });
 
@@ -151,17 +181,36 @@ io.on("connection", (socket) => {
   // DISCONNECT
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
+    
+    // Find which user disconnected
     const users = readUsers();
-    const idx = users.findIndex((u) => u.socketId === socket.id);
-    if (idx !== -1) {
-      users[idx].lastSeen = null;
-      users[idx].socketId = null;
+    const disconnectedUser = users.find((u) => u.socketId === socket.id);
+    
+    if (disconnectedUser) {
+      const schoolId = disconnectedUser.schoolId;
+      
+      // Update user state
+      disconnectedUser.lastSeen = null;
+      disconnectedUser.socketId = null;
       writeUsers(users);
-      io.emit("userDisconnected", users[idx].schoolId);
+      
+      // Remove from connected users tracking
+      connectedUsers.delete(schoolId);
+      
+      // Notify all clients about disconnection
+      io.emit("userDisconnected", schoolId);
+      console.log(`User ${schoolId} disconnected`);
     }
+  });
+
+  // NOTIFICATION ACKNOWLEDGEMENT (optional - for future use)
+  socket.on("notificationRead", ({ notificationId, userId }) => {
+    // Could implement server-side notification tracking here
+    console.log(`Notification ${notificationId} read by user ${userId}`);
   });
 });
 
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Notification system enabled - tracking geofence transitions`);
 });

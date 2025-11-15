@@ -6,9 +6,9 @@
     "lon": 120.9372429,
     "accuracy": 92515.81818911646,
     "lastInside": null,
-    "lastSeen": "2025-11-15T15:49:32.822Z",
+    "lastSeen": "2025-11-15T17:38:46.828Z",
     "isAdmin": false,
-    "socketId": "OI96an2EFhYVsbLYAAAB"
+    "socketId": "XJlf9hETM3nMMKibAAAB"
   },
   {
     "schoolId": "king",
@@ -19,6 +19,28 @@
     "lastInside": null,
     "lastSeen": null,
     "isAdmin": true,
+    "socketId": null
+  },
+  {
+    "schoolId": "give",
+    "password": "up",
+    "lat": 14.3803947,
+    "lon": 120.873297,
+    "accuracy": 20,
+    "lastInside": null,
+    "lastSeen": "2025-11-15T17:35:46.532Z",
+    "isAdmin": false,
+    "socketId": "UbHRreyjFSlyf_sKAAAB"
+  },
+  {
+    "schoolId": "yes",
+    "password": "no",
+    "lat": null,
+    "lon": null,
+    "accuracy": null,
+    "lastInside": null,
+    "lastSeen": "2025-11-15T16:33:16.533Z",
+    "isAdmin": false,
     "socketId": null
   }
 ]
