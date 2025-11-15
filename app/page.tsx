@@ -7,9 +7,11 @@ import "leaflet/dist/leaflet.css";
 
 type LocationUpdate = {
   id: string;
-  lat: number;
-  lon: number;
-  accuracy: number;
+  lat?: number;
+  lon?: number;
+  accuracy?: number;
+  lastInside?: string;
+  lastSeen?: string;
 };
 
 export default function Home() {
@@ -17,7 +19,6 @@ export default function Home() {
   const leafletMapRef = useRef<any>(null);
   const markersRef = useRef<Record<string, any>>({});
   const socketRef = useRef<Socket | null>(null);
-  const watchIdRef = useRef<number | null>(null);
 
   const [schoolId, setSchoolId] = useState("");
   const [password, setPassword] = useState("");
@@ -26,6 +27,9 @@ export default function Home() {
   const [statusHtml, setStatusHtml] = useState("Connecting...");
   const [users, setUsers] = useState<Record<string, LocationUpdate>>({});
   const [Leaflet, setLeaflet] = useState<any>(null);
+  const [isRegister, setIsRegister] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false); // hamburger dropdown state
 
   const eacPolygon: Array<[number, number]> = [
     [14.582820, 120.986910],
@@ -41,61 +45,85 @@ export default function Home() {
 
   const mapCenter: [number, number] = [14.582750, 120.987030];
 
-  // Load Leaflet
+  // Load Leaflet dynamically
   useEffect(() => {
     if (typeof window === "undefined") return;
     import("leaflet").then((L) => setLeaflet(L));
   }, []);
 
-  // Initialize socket once on mount
+  // Socket.IO initialization (unchanged)
   useEffect(() => {
-    const socket: Socket = io("http://localhost:3000");
-    socketRef.current = socket
+    const socket = io("http://localhost:3000");
+    socketRef.current = socket;
 
     socket.on("connect", () => setStatusHtml("Connected to server"));
     socket.on("disconnect", () => setStatusHtml("Disconnected"));
 
-    socket.on("loginSuccess", () => setStatusHtml("Logged in successfully"));
+    socket.on(
+      "loginSuccess",
+      ({ schoolId, isAdmin }: { schoolId: string; isAdmin: boolean }) => {
+        setUserId(schoolId);
+        setIsAdmin(isAdmin);
+        setStarted(true);
+        setStatusHtml("Logged in successfully");
+        localStorage.setItem("schoolId", schoolId);
+        localStorage.setItem("isAdmin", JSON.stringify(isAdmin));
+        if (isAdmin) window.location.href = "/admin";
+      }
+    );
+
     socket.on("loginFailed", (msg: string) => {
       alert(msg);
       setStarted(false);
       setUserId(null);
     });
 
-    socket.on("currentUsers", (existingUsers: Record<string, LocationUpdate>) => setUsers(existingUsers));
+    socket.on("registerSuccess", (msg: string) => {
+      alert(msg);
+      setIsRegister(false);
+    });
+
+    socket.on("registerFailed", (msg: string) => alert(msg));
+
+    socket.on("currentUsers", (existingUsers: Record<string, LocationUpdate>) =>
+      setUsers(existingUsers)
+    );
 
     socket.on("userLocationUpdate", (data: LocationUpdate) => {
-      const { id, lat, lon, accuracy } = data;
+      const id = data.id ?? "unknown";
+      const lat = data.lat != null ? Number(data.lat) : undefined;
+      const lon = data.lon != null ? Number(data.lon) : undefined;
+      const accuracy = data.accuracy != null ? Number(data.accuracy) : undefined;
 
-      // Update marker if map is ready
-      if (Leaflet && leafletMapRef.current) {
+      let lastInside = data.lastInside;
+      const lastSeen = new Date().toISOString();
+
+      if (!isNaN(lat ?? NaN) && !isNaN(lon ?? NaN) && Leaflet && leafletMapRef.current) {
         const L = Leaflet;
         const polyCoords = eacPolygon.map(([lat, lon]) => [lon, lat] as [number, number]);
-        const pt = turf.point([lon, lat]);
+        const pt = turf.point([lon!, lat!]);
         const poly = turf.polygon([polyCoords]);
         const inside = turf.booleanPointInPolygon(pt, poly);
 
-        const existing = markersRef.current[id];
-        if (existing) {
-          existing.setLatLng([lat, lon]);
+        if (inside) lastInside = new Date().toISOString();
+
+        if (markersRef.current[id]) {
+          markersRef.current[id].setLatLng([lat!, lon!]);
         } else {
-          const marker = L.circleMarker([lat, lon], { radius: 6 });
+          const marker = L.circleMarker([lat!, lon!], { radius: 6 });
           marker.addTo(leafletMapRef.current);
           markersRef.current[id] = marker;
         }
 
         markersRef.current[id].bindPopup(
-          `${id}<br>📍 ${inside ? "✅ Inside" : "❌ Outside"}<br>Accuracy: ${accuracy.toFixed(1)} m`
+          `${id}<br>📍 ${inside ? "✅ Inside" : "❌ Outside"}<br>Accuracy: ${accuracy?.toFixed(1) ?? "-"} m`
         );
-
-        if (id === userId) {
-          setStatusHtml(
-            `${inside ? "✅ Inside EAC Polygon" : "❌ Outside EAC Polygon"}<br>Accuracy: ${accuracy.toFixed(1)} m`
-          );
-        }
       }
 
-      setUsers((prev) => ({ ...prev, [id]: data }));
+      setUsers((prev) => ({
+        ...prev,
+        [id]: { id, lat, lon, accuracy, lastInside, lastSeen },
+      }));
     });
 
     socket.on("userDisconnected", (id: string) => {
@@ -111,15 +139,19 @@ export default function Home() {
       });
     });
 
+    const heartbeat = setInterval(() => {
+      if (userId) socket.emit("heartbeat", { schoolId: userId });
+    }, 30000);
+
     return () => {
+      clearInterval(heartbeat);
       socket.disconnect();
     };
-  }, [Leaflet]);
+  }, [Leaflet, userId]);
 
-  // Initialize map when started
+  // Initialize Map
   useEffect(() => {
     if (!started || !Leaflet || !mapContainerRef.current) return;
-
     const L = Leaflet;
     const map = L.map(mapContainerRef.current, { center: mapCenter, zoom: 18 });
     leafletMapRef.current = map;
@@ -127,97 +159,149 @@ export default function Home() {
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 80 }).addTo(map);
     L.polygon(eacPolygon, { color: "blue", fillColor: "#3f83f8", fillOpacity: 0.3 }).addTo(map);
 
-    // Watch user location
     if (navigator.geolocation && userId) {
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        ({ coords: { latitude: lat, longitude: lon, accuracy } }) => {
-          socketRef.current?.emit("updateLocation", { schoolId: userId, lat, lon, accuracy });
+      const watchId = navigator.geolocation.watchPosition(
+        ({ coords: { latitude, longitude, accuracy } }) => {
+          if (!isNaN(latitude) && !isNaN(longitude)) {
+            socketRef.current?.emit("updateLocation", { schoolId: userId, lat: latitude, lon: longitude, accuracy });
+          }
         },
         (err) => console.error("watchPosition error:", err),
         { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
       );
-    }
 
-    return () => {
-      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
-      map.remove();
-      markersRef.current = {};
-      setUsers({});
-    };
+      return () => navigator.geolocation.clearWatch(watchId);
+    }
   }, [started, Leaflet, userId]);
 
   const handleStart = () => {
     const sId = schoolId.trim();
     const pw = password.trim();
     if (!sId || !pw) return alert("Enter School ID and Password");
-
-    setUserId(sId);
-    setStarted(true);
-    setStatusHtml("Logging in...");
     socketRef.current?.emit("login", { schoolId: sId, password: pw });
   };
 
-  const handleRemoveUser = (id: string) => {
-    socketRef.current?.emit("removeUser", id);
+  const handleRegister = () => {
+    const sId = schoolId.trim();
+    const pw = password.trim();
+    if (!sId || !pw) return alert("Enter School ID and Password");
+    socketRef.current?.emit("register", { schoolId: sId, password: pw });
+  };
+
+  const handleLogout = () => {
+    socketRef.current?.disconnect();
+    socketRef.current = null;
+
+    if (leafletMapRef.current) {
+      leafletMapRef.current.remove();
+      leafletMapRef.current = null;
+      markersRef.current = {};
+    }
+
+    localStorage.removeItem("schoolId");
+    localStorage.removeItem("isAdmin");
+    setUserId(null);
+    setIsAdmin(false);
+    setStarted(false);
+    setSchoolId("");
+    setPassword("");
+    setStatusHtml("Disconnected");
+    setMenuOpen(false);
+  };
+
+  const isUserActive = (lastSeen?: string) => {
+    if (!lastSeen) return false;
+    return new Date().getTime() - new Date(lastSeen).getTime() < 2 * 60 * 1000;
   };
 
   return (
-    <div className="flex min-h-screen bg-zinc-50 dark:bg-black font-sans">
-      <aside className="w-64 bg-white dark:bg-gray-900 p-4 border-r border-gray-200 dark:border-gray-700">
-        <h2 className="text-lg font-semibold mb-4">Connected Users</h2>
-        <ul className="space-y-2">
-          {Object.entries(users).map(([id, user]) => (
-            <li key={id} className="flex justify-between items-center p-2 rounded bg-gray-100 dark:bg-gray-800">
-              <div>
-                <span className="font-medium">{id}</span>
-                <br/>
-                <span className="text-xs text-gray-600 dark:text-gray-400">
-                  Lat: {user.lat.toFixed(5)}, Lon: {user.lon.toFixed(5)}
-                </span>
-              </div>
-              <button className="text-red-500 text-sm hover:underline" onClick={() => handleRemoveUser(id)}>
-                Remove
-              </button>
-            </li>
-          ))}
-          {Object.keys(users).length === 0 && <li className="text-sm text-gray-500">No users connected</li>}
-        </ul>
-      </aside>
+    <div className="flex flex-col min-h-screen bg-zinc-50 dark:bg-black font-sans">
+      {/* Main Header */}
+      <header className="w-full bg-white dark:bg-gray-900 shadow-md px-4 py-8 flex items-center justify-center relative">
+        <h1 className="text-xl font-bold text-gray-800 dark:text-gray-200 absolute left-1/2 transform -translate-x-1/2">
+          User Dashboard
+        </h1>
 
-      <main className="flex-1 flex flex-col items-center justify-start py-6 px-4">
-        {!started ? (
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md w-full max-w-md text-center">
-            <h3 className="text-xl font-semibold mb-3">Enter School ID & Password</h3>
-            <div className="flex flex-col gap-2 justify-center items-center">
-              <input
-                value={schoolId}
-                onChange={(e) => setSchoolId(e.target.value)}
-                placeholder="School ID"
-                className="p-2 border rounded w-60"
-              />
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                type="password"
-                className="p-2 border rounded w-60"
-              />
-              <button onClick={handleStart} className="px-4 py-2 bg-foreground text-white rounded mt-2">
-                Start
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-2">Uses browser geolocation.</p>
+        {/* Hamburger dropdown */}
+        {started && (
+          <div className="absolute right-4">
+            <button
+              className="flex flex-col justify-between w-6 h-6 p-1 focus:outline-none"
+              onClick={() => setMenuOpen(!menuOpen)}
+            >
+              <span className="block h-0.5 bg-gray-800 dark:bg-gray-200 rounded"></span>
+              <span className="block h-0.5 bg-gray-800 dark:bg-gray-200 rounded"></span>
+              <span className="block h-0.5 bg-gray-800 dark:bg-gray-200 rounded"></span>
+            </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 mt-2 w-36 bg-white dark:bg-gray-800 rounded shadow-lg border border-gray-200 dark:border-gray-700 z-50000">
+                <button
+                  onClick={handleLogout}
+                  className="block w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  Logout
+                </button>
+                {/* Add more menu items here if needed */}
+              </div>
+            )}
           </div>
-        ) : (
-          <>
-            <div ref={mapContainerRef} id="map" style={{ height: "80vh", width: "100%", borderRadius: 8 }} />
-            <div
-              className="mt-2 px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-sm"
-              dangerouslySetInnerHTML={{ __html: statusHtml }}
-            />
-          </>
         )}
-      </main>
+      </header>
+
+      <div className="flex flex-1">
+        {started && (
+          <aside className="w-64 bg-white dark:bg-gray-900 p-4 border-r border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold mb-4">Your Information</h2>
+            <ul className="space-y-2">
+              {userId && users[userId] ? (
+                <li className="flex flex-col p-2 rounded bg-gray-100 dark:bg-gray-800">
+                  <span className="font-medium">{userId}</span>
+                  <span className="text-xs text-gray-600 dark:text-gray-400">
+                    Lat: {users[userId].lat?.toFixed(5) ?? "-"} <br />
+                    Lon: {users[userId].lon?.toFixed(5) ?? "-"}
+                  </span>
+                  <span className="text-xs text-gray-600 dark:text-gray-400">
+                    Last inside: {users[userId].lastInside ? new Date(users[userId].lastInside).toLocaleString() : "Never"}
+                  </span>
+                  <span className="text-xs text-gray-600 dark:text-gray-400">
+                    Last updated: {users[userId].lastSeen ? new Date(users[userId].lastSeen).toLocaleString() : "Never"}
+                  </span>
+                  <span className="text-xs text-gray-600 dark:text-gray-400">
+                    Status: {isUserActive(users[userId].lastSeen) ? "🟢 Active" : "⚪ Idle"}
+                  </span>
+                </li>
+              ) : (
+                <li className="text-sm text-gray-500">No coordinates yet</li>
+              )}
+            </ul>
+          </aside>
+        )}
+
+        <main className="flex-1 flex flex-col items-center justify-start py-6 px-4">
+          {!started ? (
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md w-full max-w-md text-center">
+              <h3 className="text-xl font-semibold mb-3">{isRegister ? "Register New User" : "Enter School ID & Password"}</h3>
+              <div className="flex flex-col gap-2 justify-center items-center">
+                <input value={schoolId} onChange={(e) => setSchoolId(e.target.value)} placeholder="School ID" className="p-2 border rounded w-60" />
+                <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" className="p-2 border rounded w-60" />
+                <button onClick={isRegister ? handleRegister : handleStart} className="px-4 py-2 bg-foreground text-white rounded mt-2">
+                  {isRegister ? "Register" : "Start"}
+                </button>
+                <button className="text-xs text-blue-500 mt-2 hover:underline" onClick={() => setIsRegister(!isRegister)}>
+                  {isRegister ? "Go to Login" : "Register New User"}
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Uses browser geolocation.</p>
+            </div>
+          ) : (
+            <div className="flex-1 w-full">
+              <div ref={mapContainerRef} id="map" style={{ height: "80vh", width: "100%", borderRadius: 8 }} />
+              <div className="mt-2 px-2 py-1 rounded text-sm" dangerouslySetInnerHTML={{ __html: statusHtml }} />
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

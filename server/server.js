@@ -3,92 +3,165 @@ const fs = require("fs");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
+const turf = require("@turf/turf");
 
 const app = express();
 const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
 
-const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:3000", // frontend port
-    methods: ["GET", "POST"],
-  },
-});
-
+const PORT = 3000;
 const LOGINS_FILE = path.join(__dirname, "logins.json");
 
-// Load existing logins or initialize empty
-let logins = {};
-if (fs.existsSync(LOGINS_FILE)) {
+// Read/write helpers
+function readUsers() {
   try {
-    logins = JSON.parse(fs.readFileSync(LOGINS_FILE, "utf-8"));
-  } catch (err) {
-    console.error("Failed to parse logins.json, starting fresh");
-    logins = {};
+    const data = fs.readFileSync(LOGINS_FILE, "utf-8");
+    return JSON.parse(data);
+  } catch {
+    return [];
   }
 }
 
-// Store connected users in memory
-let connectedUsers = {};
-
-// Helper: save logins to file
-function saveLogins() {
-  fs.writeFileSync(LOGINS_FILE, JSON.stringify(logins, null, 2));
+function writeUsers(users) {
+  fs.writeFileSync(LOGINS_FILE, JSON.stringify(users, null, 2));
 }
 
-// Example hardcoded passwords for testing
-const passwords = {
-  "12345": "pass123",
-  "67890": "mypassword",
-};
+// Get user
+function getUser(schoolId) {
+  const users = readUsers();
+  return users.find((u) => u.schoolId === schoolId);
+}
+
+// Update location & lastSeen
+function updateUserLocation(schoolId, lat, lon, accuracy, inside, socketId) {
+  const users = readUsers();
+  const idx = users.findIndex((u) => u.schoolId === schoolId);
+  if (idx !== -1) {
+    users[idx].lat = Number(lat);
+    users[idx].lon = Number(lon);
+    users[idx].accuracy = Number(accuracy ?? 0);
+    users[idx].lastSeen = new Date().toISOString();
+    if (inside) users[idx].lastInside = new Date().toISOString();
+    users[idx].socketId = socketId;
+    writeUsers(users);
+    return users[idx];
+  }
+  return null;
+}
+
+// EAC polygon
+const eacPolygon = [
+  [14.582820, 120.986910],
+  [14.582820, 120.987050],
+  [14.582790, 120.987120],
+  [14.582740, 120.987150],
+  [14.582700, 120.987140],
+  [14.582680, 120.987070],
+  [14.582690, 120.986950],
+  [14.582740, 120.986910],
+  [14.582820, 120.986910],
+];
 
 io.on("connection", (socket) => {
-  console.log("Socket connected:", socket.id);
+  console.log("User connected:", socket.id);
 
-  // Send current users to new client
-  socket.emit("currentUsers", connectedUsers);
+  // Send current users as record keyed by schoolId
+  const usersArray = readUsers();
+  const usersRecord = {};
+  usersArray.forEach(u => (usersRecord[u.schoolId] = u));
+  socket.emit("currentUsers", usersRecord);
 
+  // LOGIN
   socket.on("login", ({ schoolId, password }) => {
-    // Check password
-    if (passwords[schoolId] && passwords[schoolId] === password) {
-      // Deduplicate: only add if not already connected
-      if (!logins[schoolId]) {
-        logins[schoolId] = { schoolId, password, lastLogin: new Date().toISOString() };
-        saveLogins();
-      }
-
-      connectedUsers[schoolId] = { id: schoolId, lat: 0, lon: 0, accuracy: 0 };
-      socket.data.schoolId = schoolId; // store for this socket
-      socket.emit("loginSuccess");
-      console.log("Login success:", schoolId);
+    const users = readUsers();
+    const user = users.find((u) => u.schoolId === schoolId);
+    if (user && user.password === password) {
+      user.socketId = socket.id;
+      writeUsers(users);
+      socket.emit("loginSuccess", { schoolId, isAdmin: user.isAdmin || false });
     } else {
       socket.emit("loginFailed", "Invalid School ID or Password");
-      console.log("Login failed:", schoolId);
+    }
+  });
+
+  // REGISTER
+  socket.on("register", ({ schoolId, password }) => {
+    const users = readUsers();
+    if (users.find((u) => u.schoolId === schoolId)) {
+      socket.emit("registerFailed", "School ID already exists");
+      return;
+    }
+    const newUser = {
+      schoolId,
+      password,
+      lat: null,
+      lon: null,
+      accuracy: null,
+      lastInside: null,
+      lastSeen: null,
+      isAdmin: false,
+      socketId: socket.id,
+    };
+    users.push(newUser);
+    writeUsers(users);
+    socket.emit("registerSuccess", "User registered successfully");
+  });
+
+  // LOCATION UPDATE
+  socket.on("updateLocation", ({ schoolId, lat, lon, accuracy }) => {
+    const pt = turf.point([lon, lat]);
+    const poly = turf.polygon([eacPolygon.map(([lat, lon]) => [lon, lat])]);
+    const inside = turf.booleanPointInPolygon(pt, poly);
+
+    const prevUser = getUser(schoolId);
+    const wasInside = prevUser?.lastInside != null;
+
+    const updatedUser = updateUserLocation(schoolId, lat, lon, accuracy, inside, socket.id);
+
+    if (updatedUser) io.emit("userLocationUpdate", { [updatedUser.schoolId]: updatedUser });
+
+    if (!wasInside && inside) {
+      io.emit("userEntered", { id: schoolId, time: new Date().toISOString() });
     }
 
-    // Send updated user list to everyone
-    io.emit("currentUsers", connectedUsers);
+    if (wasInside && !inside) {
+      io.emit("userExited", { id: schoolId, time: new Date().toISOString() });
+    }
   });
 
-  socket.on("updateLocation", ({ schoolId, lat, lon, accuracy }) => {
-    if (!connectedUsers[schoolId]) return;
-    connectedUsers[schoolId] = { id: schoolId, lat, lon, accuracy };
-    io.emit("userLocationUpdate", connectedUsers[schoolId]);
+  // HEARTBEAT
+  socket.on("heartbeat", ({ schoolId }) => {
+    const users = readUsers();
+    const idx = users.findIndex((u) => u.schoolId === schoolId);
+    if (idx !== -1) {
+      users[idx].lastSeen = new Date().toISOString();
+      writeUsers(users);
+      io.emit("userLocationUpdate", { [users[idx].schoolId]: users[idx] });
+    }
   });
 
-  socket.on("removeUser", (schoolId) => {
-    delete connectedUsers[schoolId];
-    io.emit("userDisconnected", schoolId);
+  // MANUAL REFRESH REQUEST
+  socket.on("requestUsers", () => {
+    const usersArray = readUsers();
+    const usersRecord = {};
+    usersArray.forEach(u => (usersRecord[u.schoolId] = u));
+    socket.emit("currentUsers", usersRecord);
   });
 
+  // DISCONNECT
   socket.on("disconnect", () => {
-    const schoolId = socket.data.schoolId;
-    if (schoolId) {
-      delete connectedUsers[schoolId];
-      io.emit("userDisconnected", schoolId);
+    console.log("User disconnected:", socket.id);
+    const users = readUsers();
+    const idx = users.findIndex((u) => u.socketId === socket.id);
+    if (idx !== -1) {
+      users[idx].lastSeen = null;
+      users[idx].socketId = null;
+      writeUsers(users);
+      io.emit("userDisconnected", users[idx].schoolId);
     }
   });
 });
 
-server.listen(3000, () => {
-  console.log("Server running on http://localhost:3000");
+server.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
