@@ -11,6 +11,7 @@
   "dependencies": {
     "@capacitor/geolocation": "^7.1.5",
     "@khmyznikov/pwa-install": "^0.5.8",
+    "@tailwindcss/vite": "^4.1.17",
     "@turf/turf": "^7.2.0",
     "leaflet": "^1.9.4",
     "next": "^16.0.3",
@@ -26,9 +27,11 @@
     "@types/react": "^19.2.4",
     "@types/react-dom": "^19.2.3",
     "@types/uuid": "^10.0.0",
+    "autoprefixer": "^10.4.22",
     "eslint": "^9",
     "eslint-config-next": "16.0.3",
-    "tailwindcss": "^4",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.17",
     "typescript": "^5"
   }
 }

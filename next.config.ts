@@ -10,7 +10,7 @@ const withPWA = require('next-pwa')({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // Add any other config you need
+  // Force Webpack to avoid Turbopack issues
 }
 
 export default withPWA(nextConfig)
