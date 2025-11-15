@@ -1,5 +1,16 @@
 [
   {
+    "schoolId": "alan",
+    "password": "tamio",
+    "lat": 14.4276391,
+    "lon": 120.9372429,
+    "accuracy": 92515.81818911646,
+    "lastInside": null,
+    "lastSeen": "2025-11-15T15:49:32.822Z",
+    "isAdmin": false,
+    "socketId": "OI96an2EFhYVsbLYAAAB"
+  },
+  {
     "schoolId": "king",
     "password": "kong",
     "lat": 14.4276391,
@@ -9,49 +20,5 @@
     "lastSeen": null,
     "isAdmin": true,
     "socketId": null
-  },
-  {
-    "schoolId": "give",
-    "password": "up",
-    "lat": 14.3803999,
-    "lon": 120.8733038,
-    "accuracy": 20,
-    "lastInside": null,
-    "lastSeen": null,
-    "isAdmin": false,
-    "socketId": null
-  },
-  {
-    "schoolId": "new1",
-    "password": "1",
-    "lat": 14.4276391,
-    "lon": 120.9372429,
-    "accuracy": 92515.81818911646,
-    "lastInside": null,
-    "lastSeen": "2025-11-15T06:23:24.681Z",
-    "isAdmin": false,
-    "socketId": "ncrBcDInl3MKCaBbAAAC"
-  },
-  {
-    "schoolId": "new user",
-    "password": "1",
-    "lat": 14.3803999,
-    "lon": 120.8733038,
-    "accuracy": 20,
-    "lastInside": null,
-    "lastSeen": "2025-11-15T09:13:56.618Z",
-    "isAdmin": false,
-    "socketId": "w5jEOHLT4Equs5wBAAAB"
-  },
-  {
-    "schoolId": "2nd user",
-    "password": "1",
-    "lat": 14.4276391,
-    "lon": 120.9372429,
-    "accuracy": 92515.81818911646,
-    "lastInside": null,
-    "lastSeen": "2025-11-15T09:28:16.489Z",
-    "isAdmin": false,
-    "socketId": "zvZJ-ixekwTMp0AhAAAC"
   }
 ]

@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@capacitor/geolocation": "^7.1.5",
+    "@khmyznikov/pwa-install": "^0.5.8",
     "@turf/turf": "^7.2.0",
     "leaflet": "^1.9.4",
-    "next": "16.0.3",
+    "next": "^16.0.3",
+    "next-pwa": "^5.6.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "socket.io-client": "^4.8.1"
