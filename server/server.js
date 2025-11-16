@@ -18,34 +18,37 @@ const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3001";
 
 // Firebase Admin initialization
 const serviceAccount = {
-  type: "service_account",
-  project_id: process.env.FIREBASE_PROJECT_ID,
-  private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID || "",
-  private_key: (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, '\n'),
-  client_email: process.env.FIREBASE_CLIENT_EMAIL,
-  client_id: process.env.FIREBASE_CLIENT_ID || "",
-  auth_uri: "https://accounts.google.com/o/oauth2/auth",
-  token_uri: "https://oauth2.googleapis.com/token",
-  auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-  client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL || ""
+    type: "service_account",
+    project_id: process.env.FIREBASE_PROJECT_ID,
+    private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID || "",
+    private_key: (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, '\n'),
+    client_email: process.env.FIREBASE_CLIENT_EMAIL,
+    client_id: process.env.FIREBASE_CLIENT_ID || "",
+    auth_uri: "https://accounts.google.com/o/oauth2/auth",
+    token_uri: "https://oauth2.googleapis.com/token",
+    auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+    client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL || ""
 };
 
 try {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL || 'https://eacgeolocate.firebaseio.com'
-  });
-  console.log('✅ Firebase Admin initialized successfully.');
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        databaseURL: process.env.FIREBASE_DATABASE_URL
+    });
+    console.log('✅ Firebase Admin initialized successfully.');
 } catch (error) {
-  console.error('❌ Firebase Admin initialization failed:', error.message);
-  process.exit(1);
+    console.error('❌ Firebase Admin initialization failed:', error.message);
+    process.exit(1);
 }
+
+// Reference to Realtime Database
+const db = admin.database();
 
 // Express middleware
 app.use(cors({ origin: CLIENT_URL, credentials: true }));
 app.use(express.json());
 
-// Real-time data storage
+// In-memory store for real-time quick access
 const users = {}; // { UID: { lat, lon, accuracy, lastInside, lastSeen } }
 
 // Geofence polygon
@@ -109,8 +112,8 @@ app.post('/api/eac-polygon', authenticateAdmin, (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
+    res.json({
+        status: 'ok',
         timestamp: new Date().toISOString(),
         connectedUsers: Object.keys(users).length
     });
@@ -124,7 +127,7 @@ const io = new Server(server, {
 // Socket authentication middleware
 io.use(async (socket, next) => {
     const token = socket.handshake.auth.token;
-    
+
     if (!token) {
         console.error('Socket connection attempt without token');
         return next(new Error('Authentication error: Token required.'));
@@ -132,7 +135,7 @@ io.use(async (socket, next) => {
 
     try {
         const decodedToken = await admin.auth().verifyIdToken(token);
-        
+
         if (!decodedToken || !decodedToken.uid) {
             return next(new Error('Authentication error: Invalid token.'));
         }
@@ -162,156 +165,117 @@ io.on('connection', (socket) => {
         console.log(`👑 Admin ${uid} joined admin room`);
         socket.emit('currentUsers', users);
         socket.join('admin_room');
-        
+
         socket.on('disconnect', () => {
             console.log(`👑 Admin disconnected: ${uid}`);
-            socket.broadcast.to('admin_room').emit('info', { 
-                message: `Admin ${uid} disconnected`, 
-                timestamp: new Date().toISOString() 
+            socket.broadcast.to('admin_room').emit('info', {
+                message: `Admin ${uid} disconnected`,
+                timestamp: new Date().toISOString()
             });
         });
-        
-        // Admin-specific events can be added here
+
         return;
     }
 
     // Regular user connection
     console.log(`👤 User ${uid} connected`);
-    
-    // Notify admins of new user connection
     io.to('admin_room').emit('userConnected', { id: uid, email });
 
-    // Initialize user data
     if (!users[uid]) {
-        users[uid] = { 
-            lat: undefined, 
-            lon: undefined, 
-            accuracy: undefined, 
-            lastInside: undefined, 
-            lastSeen: new Date().toISOString() 
-        };
+        users[uid] = { lat: undefined, lon: undefined, accuracy: undefined, lastInside: undefined, lastSeen: new Date().toISOString() };
     }
 
-    // Handle location updates
-    socket.on('locationUpdate', (data) => {
-        const { lat, lon, accuracy } = data;
-        
-        if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
-            console.warn(`Invalid location data from ${uid}:`, data);
-            return;
-        }
+    const UPDATE_INTERVAL_MS = 5000; // 5 seconds per user
 
-        const now = new Date().toISOString();
-        const userLocation = turf.point([lon, lat]);
+    // In server.js, inside io.on('connection', (socket) => { ... })
+socket.on('locationUpdate', async (data) => {
+    const { lat, lon, accuracy } = data;
 
-        // Create polygon feature for geofence check
-        const polygonFeature = turf.polygon([eacPolygon.map(([lat, lon]) => [lon, lat])]);
-        const isInside = turf.booleanPointInPolygon(userLocation, polygonFeature);
+    if (!lat || !lon || isNaN(lat) || isNaN(lon)) return;
 
-        // Track previous status
-        const wasInside = users[uid].lastInside !== undefined;
-        const oldStatus = wasInside ? "Inside" : "Outside";
-        const newStatus = isInside ? "Inside" : "Outside";
+    const now = new Date().toISOString();
+    const userLocation = turf.point([lon, lat]);
+    const polygonFeature = turf.polygon([eacPolygon.map(([lat, lon]) => [lon, lat])]);
+    const isInside = turf.booleanPointInPolygon(userLocation, polygonFeature);
 
-        // Update user data
-        users[uid] = {
-            lat,
-            lon,
-            accuracy,
-            lastInside: isInside ? (users[uid].lastInside || now) : undefined,
-            lastSeen: now
-        };
+    const prevUser = users[uid] || {};
+    const wasInside = prevUser.lastInside !== undefined;
+    const oldStatus = wasInside ? "Inside" : "Outside";
+    const newStatus = isInside ? "Inside" : "Outside";
 
-        // Broadcast location update to admins
-        io.to('admin_room').emit('userLocationUpdate', { [uid]: users[uid] });
+    // Only update if data changed significantly or time threshold passed
+    const shouldUpdate = 
+        !prevUser.lat || !prevUser.lon ||
+        prevUser.lat !== lat ||
+        prevUser.lon !== lon ||
+        prevUser.accuracy !== accuracy ||
+        (prevUser.lastUpdate && (new Date(now) - new Date(prevUser.lastUpdate)) > 5000); // 5s throttle
 
-        // Detect entry event
-        if (oldStatus === "Outside" && newStatus === "Inside") {
-            console.log(`📍 User ${uid} ENTERED the geofence at (${lat.toFixed(5)}, ${lon.toFixed(5)})`);
-            io.to('admin_room').emit('userEntered', { 
-                id: uid, 
-                time: now, 
-                lat, 
-                lon,
-                email 
-            });
-        } 
-        // Detect exit event
-        else if (oldStatus === "Inside" && newStatus === "Outside" && wasInside) {
-            console.log(`📍 User ${uid} EXITED the geofence at (${lat.toFixed(5)}, ${lon.toFixed(5)})`);
-            io.to('admin_room').emit('userExited', { 
-                id: uid, 
-                time: now, 
-                lat, 
-                lon,
-                email 
-            });
-            users[uid].lastInside = undefined;
-        }
+    if (!shouldUpdate) return; // Skip update if nothing changed
+
+    // Update in-memory user object
+    users[uid] = {
+        lat,
+        lon,
+        accuracy,
+        lastInside: isInside ? (prevUser.lastInside || now) : undefined,
+        lastSeen: now,
+        lastUpdate: now, // track last update timestamp
+    };
+
+    // Safely write to Firebase (replace undefined with null)
+    await db.ref(`users/${uid}`).set({
+        lat,
+        lon,
+        accuracy,
+        lastInside: users[uid].lastInside || null,
+        lastSeen: now,
+        email: email || null
     });
 
-    // Handle heartbeat (optional - for keeping connection alive)
+    // Broadcast to admin room
+    io.to('admin_room').emit('userLocationUpdate', { [uid]: users[uid] });
+
+    // Detect entry event
+    if (oldStatus === "Outside" && newStatus === "Inside") {
+        console.log(`📍 User ${uid} ENTERED the geofence at (${lat.toFixed(5)}, ${lon.toFixed(5)})`);
+        await db.ref('events/entries').push({ uid, lat, lon, timestamp: now, type: "entry" });
+        io.to('admin_room').emit('userEntered', { id: uid, time: now, lat, lon, email });
+    }
+
+    // Detect exit event
+    if (oldStatus === "Inside" && newStatus === "Outside" && wasInside) {
+        console.log(`📍 User ${uid} EXITED the geofence at (${lat.toFixed(5)}, ${lon.toFixed(5)})`);
+        await db.ref('events/exits').push({ uid, lat, lon, timestamp: now, type: "exit" });
+        io.to('admin_room').emit('userExited', { id: uid, time: now, lat, lon, email });
+        users[uid].lastInside = undefined;
+    }
+});
+
+
+
     socket.on('heartbeat', () => {
-        if (users[uid]) {
-            users[uid].lastSeen = new Date().toISOString();
-        }
+        if (users[uid]) users[uid].lastSeen = new Date().toISOString();
     });
 
-    // Handle disconnect
-    socket.on('disconnect', (reason) => {
-        console.log(`👤 User ${uid} disconnected: ${reason}`);
-        
-        // Small delay before removing user data to handle quick reconnections
+    socket.on('disconnect', () => {
+        console.log(`👤 User ${uid} disconnected`);
         setTimeout(() => {
             if (users[uid]) {
                 delete users[uid];
                 io.to('admin_room').emit('userDisconnected', uid);
-                console.log(`🗑️  User ${uid} removed from active users`);
             }
-        }, 5000); // 5 second grace period
-    });
-
-    // Handle errors
-    socket.on('error', (error) => {
-        console.error(`Socket error for user ${uid}:`, error);
+        }, 5000);
     });
 });
 
-// Global error handlers
-process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception:', error);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('SIGTERM signal received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
-    });
-});
-
-process.on('SIGINT', () => {
-    console.log('SIGINT signal received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
-    });
-});
-
-// Start the server
+// Start server
 server.listen(PORT, () => {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📍 Geolocation tracking system active`);
     console.log(`🌐 Client URL: ${CLIENT_URL}`);
     console.log(`🔒 Firebase Authentication: Enabled`);
+    console.log(`💾 Firebase Realtime Database: Connected`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 });
-
-// Export for testing
-module.exports = { app, server, io };

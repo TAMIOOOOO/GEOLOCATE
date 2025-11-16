@@ -9,10 +9,8 @@ import { useAuth } from '@/lib/firebase/AuthContext';
 import { auth } from '@/lib/firebase/client-config';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 
-// Environment variable for socket URL
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3000';
 
-// Type definitions
 type LocationUpdate = {
     id: string;
     lat?: number;
@@ -22,7 +20,6 @@ type LocationUpdate = {
     lastSeen?: string;
 };
 
-// UserSidebar Component
 function UserSidebar({
     userId,
     users,
@@ -41,7 +38,6 @@ function UserSidebar({
 
     return (
         <>
-            {/* Overlay for mobile */}
             <div
                 className={`fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity duration-300 lg:hidden ${
                     isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
@@ -49,7 +45,6 @@ function UserSidebar({
                 onClick={onClose}
             />
 
-            {/* Sidebar */}
             <aside
                 className={`fixed left-0 top-0 h-full w-80 bg-white dark:bg-gray-900 p-4 border-r border-gray-200 dark:border-gray-700 overflow-y-auto z-50 transition-transform duration-300 ease-in-out lg:static lg:z-10 lg:translate-x-0 ${
                     isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:hidden'
@@ -133,9 +128,7 @@ function UserSidebar({
     );
 }
 
-// Main Component
 export default function Home() {
-    // Map & socket refs
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<any>(null);
     const markersRef = useRef<Record<string, any>>({});
@@ -146,14 +139,11 @@ export default function Home() {
     const menuRef = useRef<HTMLDivElement | null>(null);
     const menuButtonRef = useRef<HTMLButtonElement | null>(null);
 
-    // Firebase auth state
     const { user, loading, logout: firebaseLogout } = useAuth();
 
-    // Derived auth state
     const started = !!user && !loading;
     const userId = user?.uid ?? null;
 
-    // State
     const [schoolId, setSchoolId] = useState("");
     const [password, setPassword] = useState("");
     const [statusHtml, setStatusHtml] = useState("Connecting...");
@@ -165,7 +155,6 @@ export default function Home() {
     const [desktopSidebarVisible, setDesktopSidebarVisible] = useState(false);
     const [userLocation, setUserLocation] = useState<{ lat: number; lon: number; accuracy: number } | null>(null);
 
-    // Polygon & center
     const eacPolygon: Array<[number, number]> = [
         [14.582820, 120.986910],
         [14.582820, 120.987050],
@@ -179,19 +168,16 @@ export default function Home() {
     ];
     const mapCenter: [number, number] = [14.582750, 120.987030];
 
-    // Load Leaflet dynamically
     useEffect(() => {
         if (typeof window === "undefined") return;
         import("leaflet").then((L) => setLeaflet(L));
     }, []);
 
-    // Update user marker function (using useCallback to fix dependency issues)
     const updateUserMarker = useCallback((lat: number, lon: number, accuracy: number) => {
         if (!Leaflet || !leafletMapRef.current) return;
 
         const L = Leaflet;
 
-        // Remove existing user marker and accuracy circle
         if (userMarkerRef.current) {
             try { leafletMapRef.current.removeLayer(userMarkerRef.current); } catch { }
             userMarkerRef.current = null;
@@ -201,7 +187,6 @@ export default function Home() {
             accuracyCircleRef.current = null;
         }
 
-        // Create custom icon for user's location
         const userIcon = L.divIcon({
             className: 'user-location-marker',
             html: `
@@ -218,7 +203,6 @@ export default function Home() {
             iconAnchor: [10, 10],
         });
 
-        // Create accuracy circle
         const accuracyCircle = L.circle([lat, lon], {
             radius: accuracy,
             color: '#2563eb',
@@ -229,7 +213,6 @@ export default function Home() {
         }).addTo(leafletMapRef.current);
         accuracyCircleRef.current = accuracyCircle;
 
-        // Create user marker
         const userMarker = L.marker([lat, lon], { icon: userIcon })
             .addTo(leafletMapRef.current)
             .bindPopup(`
@@ -243,7 +226,6 @@ export default function Home() {
 
         userMarkerRef.current = userMarker;
 
-        // Center map on user location if it's the first time
         if (!userLocation) {
             leafletMapRef.current.setView([lat, lon], 18);
         }
@@ -251,7 +233,6 @@ export default function Home() {
         setUserLocation({ lat, lon, accuracy });
     }, [Leaflet, userId, userLocation]);
 
-    // Socket init and listeners
     useEffect(() => {
         if (!started || !userId || !user) {
             if (socketRef.current) {
@@ -298,6 +279,15 @@ export default function Home() {
                     setUsers(existingUsers);
                 });
 
+                // CRITICAL: Listen for locationConfirmed to update sidebar
+                socket.on("locationConfirmed", (data: any) => {
+                    console.log("Location confirmed:", data);
+                    setUsers((prev) => ({
+                        ...prev,
+                        [data.id]: data
+                    }));
+                });
+
                 socket.on("userLocationUpdate", (data: LocationUpdate) => {
                     const id = data.id ?? "unknown";
                     const lat = data.lat != null ? Number(data.lat) : undefined;
@@ -316,7 +306,6 @@ export default function Home() {
 
                         if (inside) lastInside = new Date().toISOString();
 
-                        // Don't create marker for current user
                         if (id !== userId) {
                             if (markersRef.current[id]) {
                                 markersRef.current[id].setLatLng([lat!, lon!]);
@@ -359,7 +348,6 @@ export default function Home() {
                     });
                 });
 
-                // Heartbeat
                 const heartbeat = setInterval(() => {
                     if (socket?.connected) {
                         socket.emit("heartbeat", {});
@@ -387,7 +375,6 @@ export default function Home() {
         };
     }, [started, user, Leaflet, userId]);
 
-    // Initialize Map and geolocation watch
     useEffect(() => {
         if (!started || !Leaflet || !mapContainerRef.current) {
             if (leafletMapRef.current) {
@@ -399,7 +386,6 @@ export default function Home() {
 
         const L = Leaflet;
 
-        // Only initialize the map once
         if (!leafletMapRef.current) {
             const map = L.map(mapContainerRef.current, {
                 center: mapCenter,
@@ -428,7 +414,6 @@ export default function Home() {
             }).addTo(map);
         }
 
-        // Handle window resize
         const handleResize = () => {
             setTimeout(() => {
                 leafletMapRef.current?.invalidateSize();
@@ -436,7 +421,6 @@ export default function Home() {
         };
         window.addEventListener('resize', handleResize);
 
-        // Geolocation Watch
         if (navigator.geolocation && userId) {
             try {
                 watchIdRef.current = navigator.geolocation.watchPosition(
@@ -444,7 +428,6 @@ export default function Home() {
                         if (!isNaN(latitude) && !isNaN(longitude)) {
                             updateUserMarker(latitude, longitude, accuracy);
 
-                            // Send location to server with correct event name
                             socketRef.current?.emit("locationUpdate", {
                                 lat: latitude,
                                 lon: longitude,
@@ -493,7 +476,6 @@ export default function Home() {
         };
     }, [started, Leaflet, userId, updateUserMarker]);
 
-    // Start / Login
     const handleStart = async () => {
         const email = schoolId.trim() + "@school.edu";
         const pw = password.trim();
@@ -507,7 +489,6 @@ export default function Home() {
         }
     };
 
-    // Register
     const handleRegister = async () => {
         const email = schoolId.trim() + "@school.edu";
         const pw = password.trim();
@@ -522,7 +503,6 @@ export default function Home() {
         }
     };
 
-    // Logout
     const handleLogout = () => {
         firebaseLogout();
 
@@ -540,12 +520,10 @@ export default function Home() {
         setUserLocation(null);
     };
 
-    // Toggle helpers
     const toggleMobileSidebar = () => setSidebarOpen((s) => !s);
     const toggleDesktopSidebar = () => setDesktopSidebarVisible((s) => !s);
     const closeMobileSidebar = () => setSidebarOpen(false);
 
-    // Close mobile sidebar on desktop resize
     useEffect(() => {
         const handleResize = () => {
             if (window.innerWidth >= 1024) setSidebarOpen(false);
@@ -554,7 +532,6 @@ export default function Home() {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Outside click for menu
     useEffect(() => {
         const handleDocumentClick = (ev: MouseEvent) => {
             if (!menuOpen) return;
@@ -572,7 +549,6 @@ export default function Home() {
 
     return (
         <div className="flex flex-col min-h-screen bg-zinc-50 dark:bg-black font-sans">
-            {/* Header */}
             <header className="w-full bg-white dark:bg-gray-900 shadow-md px-4 py-3 sticky top-0 z-50 flex items-center">
                 {started && (
                     <div className="w-10 lg:hidden">
