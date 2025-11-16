@@ -8,10 +8,12 @@ const withPWA = require('next-pwa')({
   disable: process.env.NODE_ENV === 'development',
 })
 
+// next.config.ts
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // Force Webpack to avoid Turbopack issues
-  turbopack:{}
-}
+  // experimental: { turbo: false } <-- remove this
+};
 
-export default withPWA(nextConfig)
+export default nextConfig;
+

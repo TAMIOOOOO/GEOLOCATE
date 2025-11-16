@@ -1,10 +1,17 @@
-"use client";
+// app/admin/page.tsx
+'use client';
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 import * as turf from "@turf/turf";
 import "leaflet/dist/leaflet.css";
+import { useAuth } from '@/lib/firebase/AuthContext';
+import { useRouter } from 'next/navigation';
 
+// Environment variable for socket URL
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3000';
+
+// Type definitions
 type LocationUpdate = {
   lat?: number;
   lon?: number;
@@ -54,13 +61,11 @@ function NotificationCenter({
     }
   };
 
-  const filterNotifications = (type: string) => {
-    if (type === 'all') return notifications;
-    return notifications.filter(n => n.type === type);
-  };
-
   const [filter, setFilter] = useState<'all' | 'enter' | 'exit' | 'user_connected' | 'user_disconnected'>('all');
-  const filteredNotifications = filterNotifications(filter);
+  
+  const filteredNotifications = filter === 'all' 
+    ? notifications 
+    : notifications.filter(n => n.type === filter);
 
   return (
     <>
@@ -125,7 +130,7 @@ function NotificationCenter({
           </div>
 
           {/* Notifications List */}
-          <div className="flex-1 overflow-y-auto z-10000">
+          <div className="flex-1 overflow-y-auto">
             {filteredNotifications.length > 0 ? (
               <div className="divide-y divide-gray-200 dark:divide-gray-700">
                 {filteredNotifications.map((notification) => (
@@ -176,7 +181,7 @@ function NotificationCenter({
           </div>
 
           {/* Footer */}
-          <div className="p-4 border-t border-gray-200 dark:border-gray-700 z-1000">
+          <div className="p-4 border-t border-gray-200 dark:border-gray-700">
             <div className="flex justify-between items-center text-sm text-gray-500 dark:text-gray-400">
               <span>Total: {notifications.length}</span>
               <span>Unread: {unreadCount}</span>
@@ -188,7 +193,7 @@ function NotificationCenter({
   );
 }
 
-// Separate Sidebar Component
+// Sidebar Component
 function Sidebar({ users, isOpen, onClose }: {
   users: Record<string, LocationUpdate>;
   isOpen: boolean;
@@ -198,15 +203,17 @@ function Sidebar({ users, isOpen, onClose }: {
     <>
       {/* Overlay for mobile */}
       <div
-        className={`fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity duration-300 lg:hidden ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}
+        className={`fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity duration-300 lg:hidden ${
+          isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
         onClick={onClose}
       />
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-100% w-80 bg-white dark:bg-gray-900 p-4 border-r border-gray-200 dark:border-gray-700 z-5000 transition-transform duration-300 ease-in-out lg:static lg:z-10 lg:translate-x-0 lg:h-screen ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:hidden'
-          }`}
+        className={`fixed left-0 top-0 h-full w-80 bg-white dark:bg-gray-900 p-4 border-r border-gray-200 dark:border-gray-700 overflow-y-auto z-50 transition-transform duration-300 ease-in-out lg:static lg:z-10 lg:translate-x-0 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:hidden'
+        }`}
       >
         <div className="flex justify-between items-center mb-4 lg:hidden">
           <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Users</h2>
@@ -230,12 +237,12 @@ function Sidebar({ users, isOpen, onClose }: {
 
         <ul className="space-y-3">
           {Object.entries(users).length > 0 ? (
-            Object.entries(users).map(([schoolId, u]) => (
+            Object.entries(users).map(([userId, u]) => (
               <li
-                key={schoolId}
+                key={userId}
                 className="flex flex-col p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow"
               >
-                <span className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{schoolId}</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{userId}</span>
                 <div className="mt-2 space-y-1">
                   <div className="flex justify-between text-xs">
                     <span className="text-gray-500 dark:text-gray-400">Lat:</span>
@@ -263,10 +270,11 @@ function Sidebar({ users, isOpen, onClose }: {
                   </div>
                   <div className="flex justify-between items-center text-xs mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
                     <span className="text-gray-500 dark:text-gray-400">Status:</span>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${u.active
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                      : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                      }`}>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      u.active
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                    }`}>
                       {u.active ? "Active" : "Inactive"}
                     </span>
                   </div>
@@ -287,18 +295,26 @@ function Sidebar({ users, isOpen, onClose }: {
   );
 }
 
+// Main Admin Component
 export default function Admin() {
+  const router = useRouter();
+  const { user, loading: authLoading, logout: firebaseLogout } = useAuth();
+
+  // Refs
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const leafletMapRef = useRef<any>(null);
   const markersRef = useRef<Record<string, any>>({});
   const socketRef = useRef<Socket | null>(null);
+  const mapInitializedRef = useRef(false);
 
+  // State
   const [users, setUsers] = useState<Record<string, LocationUpdate>>({});
   const [Leaflet, setLeaflet] = useState<any>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
 
+  // Constants
   const eacPolygon: Array<[number, number]> = [
     [14.582820, 120.986910],
     [14.582820, 120.987050],
@@ -310,10 +326,85 @@ export default function Admin() {
     [14.582740, 120.986910],
     [14.582820, 120.986910],
   ];
-
   const mapCenter: [number, number] = [14.582750, 120.987030];
 
-  // Load Leaflet dynamically
+  // Helper Functions
+  const computeActive = useCallback((user: LocationUpdate) => {
+    if (user.lastSeen) {
+      const lastSeenTime = new Date(user.lastSeen).getTime();
+      return Date.now() - lastSeenTime < 2 * 60 * 1000;
+    }
+    return false;
+  }, []);
+
+  const addNotification = useCallback((type: Notification['type'], message: string, userId?: string) => {
+    const newNotification: Notification = {
+      id: Date.now().toString(),
+      type,
+      message,
+      timestamp: new Date().toISOString(),
+      userId,
+      read: false
+    };
+    setNotifications(prev => [newNotification, ...prev.slice(0, 199)]);
+  }, []);
+
+  const markNotificationAsRead = (id: string) => {
+    setNotifications(prev => 
+      prev.map(notification => 
+        notification.id === id ? { ...notification, read: true } : notification
+      )
+    );
+  };
+
+  const clearAllNotifications = () => {
+    setNotifications([]);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem("adminNotifications");
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await firebaseLogout();
+      router.push("/");
+    } catch (error) {
+      console.error("Logout failed:", error);
+      router.push("/");
+    }
+  };
+
+  const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+  const toggleNotificationCenter = () => setNotificationCenterOpen(!notificationCenterOpen);
+  const closeSidebar = () => setSidebarOpen(false);
+
+  // Authentication and redirection
+  useEffect(() => {
+    if (authLoading) return;
+
+    const checkAdminStatus = async () => {
+      if (!user) {
+        router.push("/");
+        return;
+      }
+
+      try {
+        const idTokenResult = await user.getIdTokenResult(true);
+        const isAdmin = idTokenResult.claims.admin === true;
+
+        if (!isAdmin) {
+          router.push("/");
+        }
+      } catch (error) {
+        console.error("Error checking admin claims:", error);
+        router.push("/");
+      }
+    };
+
+    checkAdminStatus();
+  }, [user, authLoading, router]);
+
+  // Load Leaflet
   useEffect(() => {
     if (typeof window === "undefined") return;
     import("leaflet").then((L) => setLeaflet(L));
@@ -324,7 +415,11 @@ export default function Admin() {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("adminNotifications");
       if (saved) {
-        setNotifications(JSON.parse(saved));
+        try {
+          setNotifications(JSON.parse(saved));
+        } catch (e) {
+          console.error("Failed to load notifications:", e);
+        }
       }
     }
   }, []);
@@ -336,9 +431,7 @@ export default function Admin() {
     }
   }, [notifications]);
 
-  // Initialize Leaflet Map
-  const mapInitializedRef = useRef(false);
-
+  // Initialize Map
   useEffect(() => {
     if (!Leaflet || !mapContainerRef.current || mapInitializedRef.current) return;
 
@@ -367,7 +460,6 @@ export default function Admin() {
       fillOpacity: 0.3
     }).addTo(map);
 
-    // Add ONLY ONE zoom control
     L.control.zoom({
       position: 'topright'
     }).addTo(map);
@@ -382,66 +474,16 @@ export default function Admin() {
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      map.remove();
+      try {
+        map.remove();
+      } catch (e) {
+        console.error("Error removing map:", e);
+      }
       mapInitializedRef.current = false;
     };
-  }, [Leaflet]);
+  }, [Leaflet, eacPolygon]);
 
-  const computeActive = (user: LocationUpdate) => {
-    if (user.lastSeen) {
-      const lastSeenTime = new Date(user.lastSeen).getTime();
-      return Date.now() - lastSeenTime < 2 * 60 * 1000;
-    }
-    return false;
-  };
-
-  // Add notification
-  const addNotification = (type: Notification['type'], message: string, userId?: string) => {
-    const newNotification: Notification = {
-      id: Date.now().toString(),
-      type,
-      message,
-      timestamp: new Date().toISOString(),
-      userId,
-      read: false
-    };
-
-    setNotifications(prev => [newNotification, ...prev.slice(0, 199)]); // Keep last 200
-  };
-
-  // Mark notification as read
-  const markNotificationAsRead = (id: string) => {
-    setNotifications(prev => 
-      prev.map(notification => 
-        notification.id === id ? { ...notification, read: true } : notification
-      )
-    );
-  };
-
-  // Clear all notifications
-  const clearAllNotifications = () => {
-    setNotifications([]);
-    localStorage.removeItem("adminNotifications");
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem("user");
-    window.location.href = "/";
-  };
-
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
-
-  const toggleNotificationCenter = () => {
-    setNotificationCenterOpen(!notificationCenterOpen);
-  };
-
-  const closeSidebar = () => {
-    setSidebarOpen(false);
-  };
-
-  // Close sidebar on desktop when window is resized to larger size
+  // Close sidebar on desktop resize
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth >= 1024) {
@@ -453,7 +495,7 @@ export default function Admin() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Update user markers on map
+  // Update user markers
   useEffect(() => {
     if (!Leaflet || !leafletMapRef.current) return;
 
@@ -461,7 +503,11 @@ export default function Admin() {
     
     // Clear existing markers
     Object.values(markersRef.current).forEach(marker => {
-      leafletMapRef.current.removeLayer(marker);
+      try {
+        leafletMapRef.current.removeLayer(marker);
+      } catch (e) {
+        console.error("Error removing marker:", e);
+      }
     });
     markersRef.current = {};
 
@@ -490,71 +536,119 @@ export default function Admin() {
     });
   }, [users, Leaflet]);
 
-  // Initialize Socket.IO and handle events
+  // Socket.IO connection
   useEffect(() => {
-    if (!Leaflet) return;
+    if (!Leaflet || authLoading || !user) {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      return;
+    }
 
-    const socket = io("http://localhost:3000");
-    socketRef.current = socket;
+    if (socketRef.current) return;
 
-    socket.on("currentUsers", (existingUsers: Record<string, LocationUpdate>) => {
-      const updatedUsers: Record<string, LocationUpdate> = {};
-      Object.entries(existingUsers).forEach(([id, u]) => {
-        updatedUsers[id] = { ...u, active: computeActive(u) };
-      });
-      setUsers(updatedUsers);
-    });
-
-    socket.on("userLocationUpdate", (data: Record<string, LocationUpdate>) => {
-      setUsers((prev) => {
-        const updated = { ...prev };
-        Object.entries(data).forEach(([id, u]) => {
-          updated[id] = { ...u, active: computeActive(u) };
+    const initSocket = async () => {
+      try {
+        const idToken = await user.getIdToken(true);
+        
+        const socket = io(SOCKET_URL, {
+          auth: { token: idToken }
         });
-        return updated;
-      });
-    });
+        socketRef.current = socket;
 
-    socket.on("userEntered", ({ id, time }) => {
-      addNotification('enter', `User ${id} entered the building`, id);
-    });
+        socket.on("connect", () => {
+          console.log("Admin socket connected");
+        });
 
-    socket.on("userExited", ({ id, time }) => {
-      addNotification('exit', `User ${id} left the building`, id);
-    });
+        socket.on("connect_error", (error) => {
+          console.error("Admin connection error:", error);
+        });
 
-    socket.on("userDisconnected", (id: string) => {
-      if (markersRef.current[id] && leafletMapRef.current) {
-        leafletMapRef.current.removeLayer(markersRef.current[id]);
-        delete markersRef.current[id];
+        socket.on("currentUsers", (existingUsers: Record<string, LocationUpdate>) => {
+          const updatedUsers: Record<string, LocationUpdate> = {};
+          Object.entries(existingUsers).forEach(([id, u]) => {
+            updatedUsers[id] = { ...u, active: computeActive(u) };
+          });
+          setUsers(updatedUsers);
+        });
+
+        socket.on("userLocationUpdate", (data: Record<string, LocationUpdate>) => {
+          setUsers((prev) => {
+            const updated = { ...prev };
+            Object.entries(data).forEach(([id, u]) => {
+              updated[id] = { ...u, active: computeActive(u) };
+            });
+            return updated;
+          });
+        });
+
+        socket.on("userEntered", ({ id, time }: { id: string, time: string }) => {
+          addNotification('enter', `User ${id} entered the building`, id);
+        });
+
+        socket.on("userExited", ({ id, time }: { id: string, time: string }) => {
+          addNotification('exit', `User ${id} left the building`, id);
+        });
+
+        socket.on("userDisconnected", (id: string) => {
+          if (markersRef.current[id] && leafletMapRef.current) {
+            try {
+              leafletMapRef.current.removeLayer(markersRef.current[id]);
+            } catch (e) {
+              console.error("Error removing marker on disconnect:", e);
+            }
+            delete markersRef.current[id];
+          }
+          setUsers((prev) => {
+            const copy = { ...prev };
+            delete copy[id];
+            return copy;
+          });
+          addNotification('user_disconnected', `User ${id} disconnected`, id);
+        });
+
+        socket.on("userConnected", (data: { id: string }) => {
+          if (data.id) {
+            addNotification('user_connected', `User ${data.id} connected`, data.id);
+          }
+        });
+
+        return () => {
+          if (socket) {
+            socket.disconnect();
+          }
+        };
+      } catch (error) {
+        console.error("Error initializing admin socket:", error);
       }
-      setUsers((prev) => {
-        const copy = { ...prev };
-        delete copy[id];
-        return copy;
-      });
-      addNotification('user_disconnected', `User ${id} disconnected`, id);
-    });
+    };
 
-    // Listen for new user connections
-    socket.on("userConnected", (data: any) => {
-      if (data.id) {
-        addNotification('user_connected', `User ${data.id} connected`, data.id);
-      }
-    });
+    initSocket();
 
     return () => {
-      socket.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
     };
-  }, [Leaflet]);
+  }, [Leaflet, user, authLoading, computeActive, addNotification]);
+
+  // Loading state
+  if (authLoading || !user) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-white dark:bg-gray-900">
+        <p className="text-xl text-gray-700 dark:text-gray-300">Loading...</p>
+      </div>
+    );
+  }
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-50 dark:bg-black font-sans">
-      {/* Main Header */}
+      {/* Header */}
       <header className="w-full bg-white dark:bg-gray-900 shadow-md px-4 py-3 sticky top-0 z-50 flex justify-between items-center">
-        {/* Left section - Hamburger Button */}
         <div className="flex-shrink-0 lg:invisible">
           <button
             onClick={toggleSidebar}
@@ -567,23 +661,20 @@ export default function Admin() {
           </button>
         </div>
 
-        {/* Center section - Title */}
         <div className="flex-1 flex justify-center">
           <h1 className="text-lg md:text-xl font-bold text-gray-800 dark:text-gray-200 text-center">
             Admin Dashboard
           </h1>
         </div>
 
-        {/* Right section - Buttons */}
         <div className="flex-shrink-0 flex items-center space-x-2">
-          {/* Notifications Button */}
           <button
             onClick={toggleNotificationCenter}
             className="relative p-2 rounded-md text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             aria-label="Notifications"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-5 5v-5zM8.5 14.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
             {unreadCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
@@ -592,7 +683,6 @@ export default function Admin() {
             )}
           </button>
 
-          {/* Logout Button */}
           <button
             onClick={handleLogout}
             className="px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-sm md:text-base"
@@ -602,14 +692,11 @@ export default function Admin() {
         </div>
       </header>
 
-      {/* Main content: sidebar + map */}
+      {/* Main content */}
       <div className="flex flex-1 relative">
-        {/* Sidebar */}
         <Sidebar users={users} isOpen={sidebarOpen} onClose={closeSidebar} />
 
-        {/* Map Container */}
         <main className="flex-1 flex flex-col w-full">
-          {/* Mobile Info Bar */}
           <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
             <div className="flex justify-between items-center text-sm">
               <span className="text-gray-600 dark:text-gray-400">
@@ -629,7 +716,6 @@ export default function Admin() {
             </div>
           </div>
 
-          {/* Map */}
           <div className="flex-1 p-2 sm:p-4 md:p-6">
             <div
               ref={mapContainerRef}
@@ -639,7 +725,6 @@ export default function Admin() {
         </main>
       </div>
 
-      {/* Notification Center */}
       <NotificationCenter
         isOpen={notificationCenterOpen}
         onClose={() => setNotificationCenterOpen(false)}
