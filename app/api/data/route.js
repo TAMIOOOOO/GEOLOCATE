@@ -1,30 +1,25 @@
 // app/api/data/route.js
-
 import { NextResponse } from 'next/server';
-import { adminDb, adminAuth } from '@/lib/firebase/server-config'; // Import Admin Auth
-import { cookies } from 'next/headers'; 
+import { adminDb, adminAuth } from '@/lib/firebase/server-config';
+import { cookies } from 'next/headers';
 
 export async function GET() {
-  const sessionCookie = cookies().get('session')?.value || '';
+  // Await cookies() - Next.js 15+ requirement
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get('session')?.value || '';
 
   // 1. Check for a valid session cookie
   if (!sessionCookie) {
-    // If no cookie, return unauthorized immediately
     return NextResponse.json({ error: 'Unauthorized: No session cookie' }, { status: 401 });
   }
 
   let decodedClaims;
   try {
     // 2. Verify the session cookie using the Admin SDK
-    // This is fast and secure, as it only checks the signature and expiration.
     decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
     
-    // The decodedClaims object contains the user's UID (decodedClaims.uid)
-    // which you can use for database operations.
-
   } catch (error) {
     console.error("Session verification failed:", error);
-    // If verification fails (e.g., expired, revoked, tampered), return unauthorized
     return NextResponse.json({ error: 'Unauthorized: Invalid session' }, { status: 401 });
   }
   

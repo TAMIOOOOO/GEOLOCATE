@@ -189,10 +189,15 @@ io.on('connection', (socket) => {
 
     // In server.js, inside io.on('connection', (socket) => { ... })
     // server/server.js - Fix broadcast
+    // Replace the locationUpdate handler in server.js (around line 138)
+
     socket.on('locationUpdate', async (data) => {
         const { lat, lon, accuracy } = data;
 
-        if (!lat || !lon || isNaN(lat) || isNaN(lon)) return;
+        if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
+            console.warn(`Invalid location data from ${uid}`);
+            return;
+        }
 
         const now = new Date().toISOString();
         const userLocation = turf.point([lon, lat]);
@@ -211,38 +216,60 @@ io.on('connection', (socket) => {
             lastSeen: now,
         };
 
-        // Write to Firebase
-        await db.ref(`users/${uid}`).set({
-            lat,
-            lon,
-            accuracy,
-            lastInside: users[uid].lastInside || null,
-            lastSeen: now,
-            email: email || null
-        });
+        // Write to Firebase with error handling
+        try {
+            await db.ref(`users/${uid}`).set({
+                lat,
+                lon,
+                accuracy,
+                lastInside: users[uid].lastInside || null,
+                lastSeen: now,
+                email: email || null
+            });
+        } catch (error) {
+            console.error(`Failed to write to Firebase for ${uid}:`, error.message);
+        }
 
-        // CRITICAL FIX: Emit to admin_room with proper data
+        // CRITICAL FIX: Emit with proper nested structure
+        // Admin expects Record<string, LocationUpdate>
         io.to('admin_room').emit('userLocationUpdate', {
-            id: uid,
-            lat,
-            lon,
-            accuracy,
-            lastInside: users[uid].lastInside,
-            lastSeen: now
+            [uid]: {  // Wrap in object with uid as key
+                lat,
+                lon,
+                accuracy,
+                lastInside: users[uid].lastInside,
+                lastSeen: now
+            }
         });
 
         // Entry detection
         if (!wasInside && isInside) {
             console.log(`📍 User ${uid} ENTERED the geofence`);
-            await db.ref('events/entries').push({ uid, lat, lon, timestamp: now, type: "entry" });
-            io.to('admin_room').emit('userEntered', { id: uid, time: now, lat, lon, email });
+            try {
+                await db.ref('events/entries').push({
+                    uid, lat, lon, timestamp: now, type: "entry"
+                });
+                io.to('admin_room').emit('userEntered', {
+                    id: uid, time: now, lat, lon, email
+                });
+            } catch (error) {
+                console.error(`Failed to log entry event:`, error.message);
+            }
         }
 
         // Exit detection
         if (wasInside && !isInside) {
-            console.log(`📍 User ${uid} EXITED the geofence`);
-            await db.ref('events/exits').push({ uid, lat, lon, timestamp: now, type: "exit" });
-            io.to('admin_room').emit('userExited', { id: uid, time: now, lat, lon, email });
+            console.log(`🚪 User ${uid} EXITED the geofence`);
+            try {
+                await db.ref('events/exits').push({
+                    uid, lat, lon, timestamp: now, type: "exit"
+                });
+                io.to('admin_room').emit('userExited', {
+                    id: uid, time: now, lat, lon, email
+                });
+            } catch (error) {
+                console.error(`Failed to log exit event:`, error.message);
+            }
         }
     });
 

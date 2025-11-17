@@ -8,6 +8,7 @@ import "leaflet/dist/leaflet.css";
 import { useAuth } from '@/lib/firebase/AuthContext';
 import { auth } from '@/lib/firebase/client-config';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { useRouter } from 'next/navigation';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3000';
 
@@ -136,6 +137,7 @@ export default function Home() {
     const watchIdRef = useRef<number | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
     const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+    const router = useRouter();
 
     const { user, loading, logout: firebaseLogout } = useAuth();
 
@@ -231,10 +233,34 @@ export default function Home() {
         setUserLocation({ lat, lon, accuracy });
     }, [Leaflet, userId, userLocation]);
 
+    // Memoize handleLogout to prevent dependency issues
+    const handleLogout = useCallback(() => {
+        firebaseLogout();
+
+        if (watchIdRef.current != null) {
+            try { navigator.geolocation.clearWatch(watchIdRef.current); } catch { }
+            watchIdRef.current = null;
+        }
+
+        setSchoolId("");
+        setPassword("");
+        setStatusHtml("Disconnected");
+        setMenuOpen(false);
+        setSidebarOpen(false);
+        setDesktopSidebarVisible(false);
+        setUserLocation(null);
+        setUserInfo(null);
+    }, [firebaseLogout]);
+
+    // Socket.IO connection - FIXED VERSION
     useEffect(() => {
         if (!started || !userId || !user) {
             if (socketRef.current) {
-                try { socketRef.current.disconnect(); } catch { }
+                try {
+                    socketRef.current.disconnect();
+                } catch (e) {
+                    console.error("Error disconnecting socket:", e);
+                }
                 socketRef.current = null;
                 setStatusHtml("Disconnected");
             }
@@ -242,6 +268,7 @@ export default function Home() {
         }
 
         let socket: Socket | null = null;
+        let heartbeatInterval: NodeJS.Timeout | null = null;
 
         const initSocket = async () => {
             try {
@@ -249,42 +276,71 @@ export default function Home() {
                 const idToken = await user.getIdToken(true);
 
                 socket = io(SOCKET_URL, {
-                    auth: { token: idToken }
+                    auth: { token: idToken },
+                    transports: ['websocket', 'polling'],
+                    reconnection: true,
+                    reconnectionDelay: 1000,
+                    reconnectionDelayMax: 5000,
+                    reconnectionAttempts: Infinity,
+                    timeout: 10000,
+                    autoConnect: true,
+                    forceNew: true
                 });
                 socketRef.current = socket;
 
                 socket.on("connect", () => {
-                    setStatusHtml("Connected and authenticated");
-                    console.log("Socket connected successfully");
+                    setStatusHtml(`✅ Connected (${socket?.id})`);
+                    console.log("User socket connected successfully, ID:", socket?.id);
                 });
 
+                // In app/page.tsx, find the Socket.IO useEffect and replace the connect_error handler
+                // Around line 296-299
+
                 socket.on("connect_error", (error) => {
-                    console.error("Connection error:", error);
-                    setStatusHtml(`Connection failed: ${error.message}`);
+                    console.error("Connection error:", error.message);
+                    setStatusHtml(`❌ Connection failed: ${error.message}<br>Server: ${SOCKET_URL}`);
                 });
+
+                // Also fix the other event handlers in the same useEffect:
 
                 socket.on("disconnect", (reason) => {
                     console.log("Socket disconnected:", reason);
-                    setStatusHtml("Disconnected from server");
+                    setStatusHtml(`⚠️ Disconnected: ${reason}`);
+
+                    if (reason === "io server disconnect") {
+                        socket?.connect();
+                    }
                 });
 
                 socket.on("error", (error) => {
                     console.error("Socket error:", error);
-                    setStatusHtml(`Error: ${error}`);
+                    setStatusHtml(`❌ Error: ${error}`);
                 });
 
-                const heartbeat = setInterval(() => {
+                socket.on("reconnect_attempt", (attemptNumber) => {
+                    console.log(`Reconnection attempt ${attemptNumber}`);
+                    setStatusHtml(`🔄 Reconnecting... (attempt ${attemptNumber})`);
+                });
+
+                socket.on("reconnect", (attemptNumber) => {
+                    console.log(`Reconnected after ${attemptNumber} attempts`);
+                    setStatusHtml("✅ Reconnected successfully");
+                });
+
+                socket.on("reconnect_failed", () => {
+                    console.error("Reconnection failed");
+                    setStatusHtml("❌ Reconnection failed");
+                });
+
+                heartbeatInterval = setInterval(() => {
                     if (socket?.connected) {
                         socket.emit("heartbeat", {});
                     }
                 }, 30000);
 
-                return () => {
-                    clearInterval(heartbeat);
-                };
             } catch (error) {
                 console.error("Error initializing socket:", error);
-                setStatusHtml("Authentication error");
+                setStatusHtml("❌ Authentication error");
                 handleLogout();
             }
         };
@@ -292,14 +348,22 @@ export default function Home() {
         initSocket();
 
         return () => {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+            }
             if (socket) {
-                try { socket.off(); } catch { }
-                try { socket.disconnect(); } catch { }
+                try {
+                    socket.off();
+                    socket.disconnect();
+                } catch (e) {
+                    console.error("Error cleaning up socket:", e);
+                }
             }
             socketRef.current = null;
         };
-    }, [started, user, Leaflet, userId]);
+    }, [started, user, userId, handleLogout]); // Only primitive values and memoized functions
 
+    // Map initialization
     useEffect(() => {
         if (!started || !Leaflet || !mapContainerRef.current) {
             if (leafletMapRef.current) {
@@ -353,18 +417,16 @@ export default function Home() {
                         if (!isNaN(latitude) && !isNaN(longitude)) {
                             updateUserMarker(latitude, longitude, accuracy);
 
-                            // Update local state immediately
                             const now = new Date().toISOString();
-                            setUserInfo({
+                            setUserInfo(prev => ({
                                 id: userId,
                                 lat: latitude,
                                 lon: longitude,
                                 accuracy,
                                 lastSeen: now,
-                                lastInside: userInfo?.lastInside
-                            });
+                                lastInside: prev?.lastInside
+                            }));
 
-                            // Send to server
                             socketRef.current?.emit("locationUpdate", {
                                 id: userId,
                                 lat: latitude,
@@ -406,7 +468,7 @@ export default function Home() {
                 }
             } catch { }
         };
-    }, [started, Leaflet, userId, updateUserMarker, userInfo]);
+    }, [started, Leaflet, userId, updateUserMarker]);
 
     const handleStart = async () => {
         const email = schoolId.trim() + "@school.edu";
@@ -433,24 +495,6 @@ export default function Home() {
         } catch (error: any) {
             alert(`Registration Failed: ${error.message}`);
         }
-    };
-
-    const handleLogout = () => {
-        firebaseLogout();
-
-        if (watchIdRef.current != null) {
-            try { navigator.geolocation.clearWatch(watchIdRef.current); } catch { }
-            watchIdRef.current = null;
-        }
-
-        setSchoolId("");
-        setPassword("");
-        setStatusHtml("Disconnected");
-        setMenuOpen(false);
-        setSidebarOpen(false);
-        setDesktopSidebarVisible(false);
-        setUserLocation(null);
-        setUserInfo(null);
     };
 
     const toggleMobileSidebar = () => setSidebarOpen((s) => !s);
@@ -519,6 +563,22 @@ export default function Home() {
 
                             {menuOpen && (
                                 <div className="absolute right-0 mt-2 w-36 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-60 py-1">
+                                    <button
+                                        onClick={async (e) => {
+                                            e.stopPropagation();
+                                            if (user) {
+                                                const tokenResult = await user.getIdTokenResult();
+                                                if (tokenResult.claims.admin === true) {
+                                                    router.push('/admin');
+                                                } else {
+                                                    alert('You are not an administrator');
+                                                }
+                                            }
+                                        }}
+                                        className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-200"
+                                    >
+                                        Admin Panel
+                                    </button>
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
