@@ -10,7 +10,7 @@ import { auth } from '@/lib/firebase/client-config';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3000';
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'https://geolocate-g7gh.vercel.app/';
 
 type LocationUpdate = {
     id: string;

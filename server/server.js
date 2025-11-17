@@ -10,6 +10,14 @@ const turf = require('@turf/turf');
 const admin = require('firebase-admin');
 require('dotenv').config();
 
+require('dotenv').config({ path: '.env.local' });
+
+console.log('🔍 Environment variables loaded:');
+console.log('FIREBASE_PROJECT_ID:', process.env.FIREBASE_PROJECT_ID ? '✅ Loaded' : '❌ Missing');
+console.log('FIREBASE_CLIENT_EMAIL:', process.env.FIREBASE_CLIENT_EMAIL ? '✅ Loaded' : '❌ Missing');
+console.log('FIREBASE_PRIVATE_KEY:', process.env.FIREBASE_PRIVATE_KEY ? '✅ Loaded' : '❌ Missing');
+console.log('FIREBASE_DATABASE_URL:', process.env.FIREBASE_DATABASE_URL ? '✅ Loaded' : '❌ Missing');
+
 
 // ============================================
 // CONFIGURATION
