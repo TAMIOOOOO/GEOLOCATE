@@ -234,7 +234,9 @@ socket.on('locationUpdate', async (data) => {
     });
 
     // Broadcast to admin room
-    io.to('admin_room').emit('userLocationUpdate', { [uid]: users[uid] });
+    console.log('Broadcasting to admins:', { id: uid, ...users[uid] });
+    io.to('admin_room').emit('userLocationUpdate', { id: uid, ...users[uid] });
+
 
     // Detect entry event
     if (oldStatus === "Outside" && newStatus === "Inside") {

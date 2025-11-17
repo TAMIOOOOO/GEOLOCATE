@@ -39,16 +39,14 @@ function UserSidebar({
     return (
         <>
             <div
-                className={`fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity duration-300 lg:hidden ${
-                    isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
-                }`}
+                className={`fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity duration-300 lg:hidden ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                    }`}
                 onClick={onClose}
             />
 
             <aside
-                className={`fixed left-0 top-0 h-full w-80 bg-white dark:bg-gray-900 p-4 border-r border-gray-200 dark:border-gray-700 overflow-y-auto z-50 transition-transform duration-300 ease-in-out lg:static lg:z-10 lg:translate-x-0 ${
-                    isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:hidden'
-                }`}
+                className={`fixed left-0 top-0 h-full w-80 bg-white dark:bg-gray-900 p-4 border-r border-gray-200 dark:border-gray-700 overflow-y-auto z-50 transition-transform duration-300 ease-in-out lg:static lg:z-10 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:hidden'
+                    }`}
             >
                 <div className="flex justify-between items-center mb-4 lg:hidden">
                     <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Your Information</h2>
@@ -66,63 +64,60 @@ function UserSidebar({
                 <div className="hidden lg:block mb-4">
                     <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Your Information</h2>
                 </div>
-
                 <ul className="space-y-3">
-                    {userId && users[userId] ? (
-                        <li className="flex flex-col p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm">
-                            <span className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{userId}</span>
-                            <div className="mt-2 space-y-1">
-                                <div className="flex justify-between text-xs">
-                                    <span className="text-gray-500 dark:text-gray-400">Lat:</span>
-                                    <span className="text-gray-700 dark:text-gray-300 font-mono">
-                                        {users[userId].lat?.toFixed(5) ?? "-"}
-                                    </span>
-                                </div>
-                                <div className="flex justify-between text-xs">
-                                    <span className="text-gray-500 dark:text-gray-400">Lon:</span>
-                                    <span className="text-gray-700 dark:text-gray-300 font-mono">
-                                        {users[userId].lon?.toFixed(5) ?? "-"}
-                                    </span>
-                                </div>
-                                <div className="flex justify-between text-xs">
-                                    <span className="text-gray-500 dark:text-gray-400">Accuracy:</span>
-                                    <span className="text-gray-700 dark:text-gray-300 font-mono">
-                                        {users[userId].accuracy?.toFixed(1) ?? "-"} m
-                                    </span>
-                                </div>
-                                <div className="flex justify-between text-xs">
-                                    <span className="text-gray-500 dark:text-gray-400">Last inside:</span>
-                                    <span className="text-gray-700 dark:text-gray-300 text-right">
-                                        {users[userId].lastInside ? new Date(users[userId].lastInside).toLocaleTimeString() : "Never"}
-                                    </span>
-                                </div>
-                                <div className="flex justify-between text-xs">
-                                    <span className="text-gray-500 dark:text-gray-400">Last updated:</span>
-                                    <span className="text-gray-700 dark:text-gray-300 text-right">
-                                        {users[userId].lastSeen ? new Date(users[userId].lastSeen).toLocaleTimeString() : "Never"}
-                                    </span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
-                                    <span className="text-gray-500 dark:text-gray-400">Status:</span>
-                                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                        isUserActive(users[userId].lastSeen)
+                    {Object.values(users).length > 0 ? (
+                        Object.values(users).map((u) => (
+                            <li key={u.id} className="flex flex-col p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm">
+                                <span className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{u.id}</span>
+                                <div className="mt-2 space-y-1">
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-gray-500 dark:text-gray-400">Lat:</span>
+                                        <span className="text-gray-700 dark:text-gray-300 font-mono">{u.lat?.toFixed(5) ?? "-"}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-gray-500 dark:text-gray-400">Lon:</span>
+                                        <span className="text-gray-700 dark:text-gray-300 font-mono">{u.lon?.toFixed(5) ?? "-"}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-gray-500 dark:text-gray-400">Accuracy:</span>
+                                        <span className="text-gray-700 dark:text-gray-300 font-mono">{u.accuracy?.toFixed(1) ?? "-"} m</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-gray-500 dark:text-gray-400">Last inside:</span>
+                                        <span className="text-gray-700 dark:text-gray-300 text-right">
+                                            {u.lastInside ? new Date(u.lastInside).toLocaleTimeString() : "Never"}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-gray-500 dark:text-gray-400">Last updated:</span>
+                                        <span className="text-gray-700 dark:text-gray-300 text-right">
+                                            {u.lastSeen ? new Date(u.lastSeen).toLocaleTimeString() : "Never"}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+                                        <span className="text-gray-500 dark:text-gray-400">Status:</span>
+                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${isUserActive(u.lastSeen)
                                             ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                                             : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                                    }`}>
-                                        {isUserActive(users[userId].lastSeen) ? "Active" : "Idle"}
-                                    </span>
+                                            }`}>
+                                            {isUserActive(u.lastSeen) ? "Active" : "Idle"}
+                                        </span>
+                                    </div>
                                 </div>
-                            </div>
-                        </li>
+                            </li>
+                        ))
                     ) : (
                         <li className="text-center py-8 text-gray-500 dark:text-gray-400">
                             <svg className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            <p className="mt-2 text-sm">No coordinates yet</p>
+                            <p className="mt-2 text-sm">Waiting for coordinates…</p>
                         </li>
                     )}
                 </ul>
+                
+
+
             </aside>
         </>
     );
@@ -249,7 +244,7 @@ export default function Home() {
             try {
                 setStatusHtml("Connecting to server...");
                 const idToken = await user.getIdToken(true);
-                
+
                 socket = io(SOCKET_URL, {
                     auth: { token: idToken }
                 });
@@ -429,6 +424,7 @@ export default function Home() {
                             updateUserMarker(latitude, longitude, accuracy);
 
                             socketRef.current?.emit("locationUpdate", {
+                                id: userId,
                                 lat: latitude,
                                 lon: longitude,
                                 accuracy
