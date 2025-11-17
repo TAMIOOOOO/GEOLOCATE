@@ -1,6 +1,6 @@
 {
-  "name": "GELOCATE",
-  "short_name": "GELOCATE",
+  "name": "EAC LOCATE",
+  "short_name": "EAC LOCATE",
   "description": "Real-time location tracker",
   "start_url": "/",
   "display": "standalone",

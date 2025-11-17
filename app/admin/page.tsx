@@ -5,8 +5,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from '@/lib/firebase/AuthContext';
 import { useRouter } from 'next/navigation';
-import { getFirestore, collection, getDocs } from 'firebase/firestore';
-import { auth } from '@/lib/firebase/client-config';
+import { ref, onValue, off } from 'firebase/database';
+import { database } from '@/lib/firebase/client-config';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3000';
 
@@ -14,16 +14,15 @@ type LocationUpdate = {
   lat?: number;
   lon?: number;
   accuracy?: number;
-  lastInside?: string;
+  lastInside?: string | null;
   lastSeen?: string;
-  active?: boolean;
+  email?: string;
 };
 
 type User = {
   uid: string;
   email?: string;
   displayName?: string;
-  createdAt?: string;
   locationData?: LocationUpdate;
 };
 
@@ -41,6 +40,11 @@ export default function Admin() {
   const { user, loading: authLoading, logout: firebaseLogout } = useAuth();
   const socketRef = useRef<Socket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const started = !!user && !authLoading;
+  const userId = user?.uid ?? null;
 
   const [allUsers, setAllUsers] = useState<Record<string, User>>({});
   const [liveLocationData, setLiveLocationData] = useState<Record<string, LocationUpdate>>({});
@@ -52,37 +56,54 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [socketConnected, setSocketConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  // Fetch all users from Firestore
-  const fetchAllUsers = useCallback(async () => {
-    try {
-      setLoading(true);
-      const db = getFirestore(auth.app);
-      const usersCollection = collection(db, 'users');
-      const usersSnapshot = await getDocs(usersCollection);
-      
-      const usersData: Record<string, User> = {};
-      usersSnapshot.forEach((doc) => {
-        const data = doc.data();
-        usersData[doc.id] = {
-          uid: doc.id,
-          email: data.email,
-          displayName: data.displayName,
-          createdAt: data.createdAt,
-          locationData: data.locationData || {}
-        };
-      });
-      
-      setAllUsers(usersData);
+  // Fetch all users from Realtime Database
+  const fetchAllUsers = useCallback(() => {
+    if (!started) return;
+
+    setLoading(true);
+    const usersRef = ref(database, 'users');
+
+    const unsubscribe = onValue(usersRef, (snapshot) => {
+      const data = snapshot.val();
+
+      if (data) {
+        const usersData: Record<string, User> = {};
+        Object.entries(data).forEach(([uid, userData]: [string, any]) => {
+          usersData[uid] = {
+            uid,
+            email: userData.email || uid,
+            displayName: userData.displayName || userData.email || uid,
+            locationData: {
+              lat: userData.lat,
+              lon: userData.lon,
+              accuracy: userData.accuracy,
+              lastInside: userData.lastInside,
+              lastSeen: userData.lastSeen,
+              email: userData.email
+            }
+          };
+        });
+        setAllUsers(usersData);
+      } else {
+        setAllUsers({});
+      }
+
       setLoading(false);
-    } catch (error) {
+    }, (error) => {
       console.error("Error fetching users:", error);
+      setConnectionError(`Database error: ${error.message}`);
       setLoading(false);
-    }
-  }, []);
+    });
+
+    return () => off(usersRef, 'value', unsubscribe);
+
+  }, [started]);
 
   const computeActive = useCallback((locationData: LocationUpdate) => {
-    if (locationData.lastSeen) {
+    if (locationData?.lastSeen) {
       const lastSeenTime = new Date(locationData.lastSeen).getTime();
       return Date.now() - lastSeenTime < 2 * 60 * 1000;
     }
@@ -91,19 +112,19 @@ export default function Admin() {
 
   const addNotification = useCallback((type: Notification['type'], message: string, userId?: string) => {
     const newNotification: Notification = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${Math.random()}`,
       type,
       message,
       timestamp: new Date().toISOString(),
       userId,
       read: false
     };
-    setNotifications(prev => [newNotification, ...prev.slice(0, 199)]);
+    setNotifications(prev => [newNotification, ...prev.slice(0, 99)]);
   }, []);
 
   const markNotificationAsRead = (id: string) => {
-    setNotifications(prev => 
-      prev.map(notification => 
+    setNotifications(prev =>
+      prev.map(notification =>
         notification.id === id ? { ...notification, read: true } : notification
       )
     );
@@ -118,6 +139,10 @@ export default function Admin() {
 
   const handleLogout = async () => {
     try {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
       await firebaseLogout();
       router.push("/");
     } catch (error) {
@@ -138,10 +163,13 @@ export default function Admin() {
 
       try {
         const idTokenResult = await user.getIdTokenResult(true);
-        const isAdmin = idTokenResult.claims.admin === true;
+        const isAdminClaim = idTokenResult.claims.admin === true; // <-- Use a new var
 
-        if (!isAdmin) {
+        if (!isAdminClaim) {
+          alert('Access Denied: You must be an administrator');
           router.push("/");
+        } else {
+          setIsAdmin(true); // <-- SET THE STATE HERE
         }
       } catch (error) {
         console.error("Error checking admin claims:", error);
@@ -152,12 +180,11 @@ export default function Admin() {
     checkAdminStatus();
   }, [user, authLoading, router]);
 
-  // Fetch users on mount
+  // Fetch users from Realtime Database
   useEffect(() => {
-    if (!authLoading && user) {
-      fetchAllUsers();
-    }
-  }, [user, authLoading, fetchAllUsers]);
+    if (!isAdmin) return; // <-- CHANGE THIS LINE
+    return fetchAllUsers();
+  }, [isAdmin, fetchAllUsers]); // <-- AND CHANGE THIS LINE (the dependency array)
 
   // Load notifications from localStorage
   useEffect(() => {
@@ -180,202 +207,215 @@ export default function Admin() {
     }
   }, [notifications]);
 
-  // Socket.IO connection for live location updates
-  // Replace the Socket.IO useEffect in admin/page.tsx (around line 180)
-
-useEffect(() => {
-  if (authLoading || !user) {
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
+  // Socket.IO connection for live updates
+  useEffect(() => {
+    if (!started || !user) {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      return;
     }
-    return;
-  }
 
-  if (socketRef.current) return;
+    if (socketRef.current?.connected) return;
 
-  const initSocket = async () => {
-    try {
-      const idToken = await user.getIdToken(true);
-      
-      const socket = io(SOCKET_URL, {
-        auth: { token: idToken },
-        transports: ['websocket', 'polling'],
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        reconnectionAttempts: 5,
-        timeout: 10000,
-        // Add these important options
-        autoConnect: true,
-        forceNew: true
-      });
-      socketRef.current = socket;
+    let socket: Socket | null = null;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
 
-      socket.on("connect", () => {
-        console.log("Admin socket connected, ID:", socket.id);
-        setSocketConnected(true);
-        setConnectionError(null);
-        
-        // Request current users on reconnect
-        socket.emit("requestCurrentUsers");
-      });
+    const initSocket = async () => {
+      try {
+        const idToken = await user.getIdToken(true);
 
-      socket.on("connect_error", (error) => {
-        console.error("Admin connection error:", error.message);
-        setSocketConnected(false);
-        setConnectionError(
-          `Connection failed: ${error.message}. Check if server is running at ${SOCKET_URL}`
-        );
-      });
+        socket = io(SOCKET_URL, {
+          auth: { token: idToken },
+          transports: ['websocket', 'polling'],
+          reconnection: true,
+          reconnectionDelay: 1000,
+          reconnectionDelayMax: 5000,
+          reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+          timeout: 10000,
+          autoConnect: true,
+          forceNew: true
+        });
 
-      socket.on("disconnect", (reason) => {
-        console.log("Socket disconnected:", reason);
-        setSocketConnected(false);
-        
-        if (reason === "io server disconnect") {
-          // Server disconnected, try to reconnect
-          socket.connect();
-        }
-      });
+        socketRef.current = socket;
 
-      socket.on("error", (error) => {
-        console.error("Socket error:", error);
-        setConnectionError(`Socket error: ${error.message || error}`);
-      });
+        socket.on("connect", () => {
+          console.log("✅ Admin socket connected:", socket?.id);
+          setSocketConnected(true);
+          setConnectionError(null);
+          reconnectAttempts = 0;
+        });
 
-      socket.on("reconnect_attempt", (attemptNumber) => {
-        console.log(`Reconnection attempt ${attemptNumber}`);
-        setConnectionError(`Reconnecting... (attempt ${attemptNumber})`);
-      });
+        socket.on("connect_error", (error) => {
+          console.error("❌ Connection error:", error.message);
+          setSocketConnected(false);
+          reconnectAttempts++;
 
-      socket.on("reconnect_failed", () => {
-        console.error("Reconnection failed");
-        setConnectionError("Failed to reconnect to server");
-      });
-
-      socket.on("currentUsers", (existingUsers: Record<string, LocationUpdate>) => {
-        console.log("Received currentUsers:", Object.keys(existingUsers).length, "users");
-        const validUsers: Record<string, LocationUpdate> = {};
-        Object.entries(existingUsers).forEach(([id, data]) => {
-          if (data && typeof data === 'object' && ('lat' in data || 'lon' in data || 'lastSeen' in data)) {
-            validUsers[id] = { ...data, active: computeActive(data) };
+          if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            setConnectionError(`Failed to connect after ${MAX_RECONNECT_ATTEMPTS} attempts`);
+          } else {
+            setConnectionError(`Connection failed. Retrying... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
           }
         });
-        setLiveLocationData(validUsers);
-      });
 
-      socket.on("userLocationUpdate", (data: Record<string, LocationUpdate>) => {
-        console.log("Received userLocationUpdate:", Object.keys(data));
-        setLiveLocationData((prev) => {
-          const updated = { ...prev };
-          Object.entries(data).forEach(([id, locationData]) => {
-            if (locationData && typeof locationData === 'object') {
-              updated[id] = { ...locationData, active: computeActive(locationData) };
+        socket.on("disconnect", (reason) => {
+          console.log("⚠️  Socket disconnected:", reason);
+          setSocketConnected(false);
+
+          if (reason === "io server disconnect") {
+            socket?.connect();
+          }
+        });
+
+        socket.on("error", (error) => {
+          console.error("Socket error:", error);
+          setConnectionError(`Error: ${error}`);
+        });
+
+        // Receive current users
+        socket.on("currentUsers", (existingUsers: Record<string, LocationUpdate>) => {
+          console.log("📊 Received current users:", Object.keys(existingUsers).length);
+          const validUsers: Record<string, LocationUpdate> = {};
+          Object.entries(existingUsers).forEach(([id, data]) => {
+            if (data && typeof data === 'object') {
+              validUsers[id] = { ...data };
             }
           });
-          return updated;
+          setLiveLocationData(validUsers);
         });
-      });
 
-      socket.on("userEntered", ({ id, time }: { id: string, time: string }) => {
-        console.log("User entered:", id);
-        addNotification('enter', `User ${id} entered the building`, id);
-      });
-
-      socket.on("userExited", ({ id, time }: { id: string, time: string }) => {
-        console.log("User exited:", id);
-        addNotification('exit', `User ${id} left the building`, id);
-      });
-
-      socket.on("userDisconnected", (id: string) => {
-        console.log("User disconnected:", id);
-        setLiveLocationData((prev) => {
-          const copy = { ...prev };
-          delete copy[id];
-          return copy;
+        // User location update
+        socket.on("userLocationUpdate", (data: Record<string, LocationUpdate>) => {
+          console.log("📍 Location update:", Object.keys(data));
+          setLiveLocationData((prev) => ({ ...prev, ...data }));
         });
-        addNotification('user_disconnected', `User ${id} disconnected`, id);
-      });
 
-      socket.on("userConnected", (data: { id: string }) => {
-        console.log("User connected:", data.id);
-        if (data.id) {
-          addNotification('user_connected', `User ${data.id} connected`, data.id);
-        }
-      });
+        // User entered geofence
+        socket.on("userEntered", ({ id, time }: { id: string, time: string }) => {
+          console.log("🟢 User entered:", id);
+          addNotification('enter', `User ${id} entered the building`, id);
+        });
 
-    } catch (error) {
-      console.error("Error initializing admin socket:", error);
-      setConnectionError("Failed to initialize real-time connection");
-    }
-  };
+        // User exited geofence
+        socket.on("userExited", ({ id, time }: { id: string, time: string }) => {
+          console.log("🔴 User exited:", id);
+          addNotification('exit', `User ${id} left the building`, id);
+        });
 
-  initSocket();
+        // User disconnected
+        socket.on("userDisconnected", (id: string) => {
+          console.log("⚫ User disconnected:", id);
+          setLiveLocationData((prev) => {
+            const copy = { ...prev };
+            delete copy[id];
+            return copy;
+          });
+          addNotification('user_disconnected', `User ${id} disconnected`, id);
+        });
 
-  return () => {
-    if (socketRef.current) {
-      socketRef.current.disconnect();
+        // User connected
+        socket.on("userConnected", (data: { id: string }) => {
+          console.log("🔵 User connected:", data.id);
+          if (data.id) {
+            addNotification('user_connected', `User ${data.id} connected`, data.id);
+          }
+        });
+
+      } catch (error) {
+        console.error("Error initializing socket:", error);
+        setConnectionError("Failed to initialize connection");
+      }
+    };
+
+    initSocket();
+
+    return () => {
+      if (socket) {
+        socket.off();
+        socket.disconnect();
+      }
       socketRef.current = null;
-    }
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-    }
-  };
-}, [user, authLoading, computeActive, addNotification]);
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, [user, started, addNotification]);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        menuOpen &&
+        menuRef.current &&
+        menuButtonRef.current &&
+        !menuRef.current.contains(event.target as Node) &&
+        !menuButtonRef.current.contains(event.target as Node)
+      ) {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [menuOpen]);
 
   if (authLoading || !user || loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-xl text-gray-700 dark:text-gray-300">Loading...</p>
+          <p className="text-xl text-gray-700 dark:text-gray-300">Loading admin panel...</p>
         </div>
       </div>
     );
   }
 
   const unreadCount = notifications.filter(n => !n.read).length;
-  
+
+  // Merge database users with live location data
   const mergedUsers = Object.entries(allUsers).map(([uid, userData]) => {
     const locationData = liveLocationData[uid] || userData.locationData || {};
+    const isActive = computeActive(locationData);
+
     return {
       ...userData,
       locationData: {
         ...locationData,
-        active: computeActive(locationData)
+        active: isActive
       }
     };
   });
 
   const filteredUsers = mergedUsers
     .filter((user) => {
-      const matchesSearch = 
+      const matchesSearch =
         user.uid.toLowerCase().includes(searchQuery.toLowerCase()) ||
         user.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         user.displayName?.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      const matchesStatus = filterStatus === 'all' || 
-        (filterStatus === 'active' && user.locationData.active) || 
-        (filterStatus === 'idle' && !user.locationData.active);
-      
+
+      const matchesStatus = filterStatus === 'all' ||
+        (filterStatus === 'active' && user.locationData?.active) ||
+        (filterStatus === 'idle' && !user.locationData?.active);
+
       return matchesSearch && matchesStatus;
     })
     .sort((a, b) => {
       if (sortBy === 'name') {
         return (a.displayName || a.email || a.uid).localeCompare(b.displayName || b.email || b.uid);
       } else if (sortBy === 'lastSeen') {
-        const timeA = a.locationData.lastSeen ? new Date(a.locationData.lastSeen).getTime() : 0;
-        const timeB = b.locationData.lastSeen ? new Date(b.locationData.lastSeen).getTime() : 0;
+        const timeA = a.locationData?.lastSeen ? new Date(a.locationData.lastSeen).getTime() : 0;
+        const timeB = b.locationData?.lastSeen ? new Date(b.locationData.lastSeen).getTime() : 0;
         return timeB - timeA;
       } else if (sortBy === 'status') {
-        return (b.locationData.active ? 1 : 0) - (a.locationData.active ? 1 : 0);
+        return (b.locationData?.active ? 1 : 0) - (a.locationData?.active ? 1 : 0);
       }
       return 0;
     });
 
-  const activeUsersCount = mergedUsers.filter(u => u.locationData.active).length;
-  const usersInBuildingCount = mergedUsers.filter(u => u.locationData.lastInside).length;
+  const activeUsersCount = mergedUsers.filter(u => u.locationData?.active).length;
+  const usersInBuildingCount = mergedUsers.filter(u => u.locationData?.lastInside).length;
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -410,21 +450,21 @@ useEffect(() => {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Admin Dashboard</h1>
-                <p className="text-sm text-gray-500 dark:text-gray-400">User Management & Monitoring</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Real-time User Monitoring</p>
               </div>
             </div>
 
             <div className="flex items-center space-x-3">
-              {/* Connection Status Indicator */}
-              <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg ${
-                socketConnected 
-                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' 
+              {/* Connection Status */}
+              <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg ${socketConnected
+                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
                   : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
-              }`}>
+                }`}>
                 <div className={`w-2 h-2 rounded-full ${socketConnected ? 'bg-green-500' : 'bg-yellow-500'} animate-pulse`}></div>
                 <span className="text-xs font-medium">{socketConnected ? 'Live' : 'Offline'}</span>
               </div>
 
+              {/* Notifications */}
               <button
                 onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
                 className="relative p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -439,6 +479,7 @@ useEffect(() => {
                 )}
               </button>
 
+              {/* Refresh Button */}
               <button
                 onClick={fetchAllUsers}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium flex items-center space-x-2"
@@ -449,15 +490,34 @@ useEffect(() => {
                 <span>Refresh</span>
               </button>
 
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium flex items-center space-x-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-                <span>Logout</span>
-              </button>
+              {/* Menu */}
+              <div className="relative" ref={menuRef}>
+                <button
+                  ref={menuButtonRef}
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  className="p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                  </svg>
+                </button>
+
+                {menuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 py-1">
+                    <button
+                      onClick={handleLogout}
+                      className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-red-600 dark:text-red-400"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                        </svg>
+                        <span>Logout</span>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -475,7 +535,7 @@ useEffect(() => {
         </div>
       </header>
 
-      {/* Main Content - Rest of the code remains the same */}
+      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -596,16 +656,15 @@ useEffect(() => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          user.locationData.active
+                        <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${user.locationData?.active
                             ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
                             : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                        }`}>
-                          {user.locationData.active ? '● Active' : '○ Idle'}
+                          }`}>
+                          {user.locationData?.active ? '● Active' : '○ Idle'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                        {user.locationData.lat && user.locationData.lon ? (
+                        {user.locationData?.lat && user.locationData?.lon ? (
                           <div className="font-mono text-xs">
                             <div>{user.locationData.lat.toFixed(5)}, {user.locationData.lon.toFixed(5)}</div>
                           </div>
@@ -614,14 +673,14 @@ useEffect(() => {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                        {user.locationData.accuracy ? (
+                        {user.locationData?.accuracy ? (
                           <span className="font-mono">{user.locationData.accuracy.toFixed(1)}m</span>
                         ) : (
                           <span className="text-gray-400 dark:text-gray-500">-</span>
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                        {user.locationData.lastInside ? (
+                        {user.locationData?.lastInside ? (
                           <div className="flex items-center space-x-2">
                             <span className="text-green-500">📍</span>
                             <span>{new Date(user.locationData.lastInside).toLocaleString()}</span>
@@ -631,7 +690,7 @@ useEffect(() => {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                        {user.locationData.lastSeen ? (
+                        {user.locationData?.lastSeen ? (
                           new Date(user.locationData.lastSeen).toLocaleString()
                         ) : (
                           <span className="text-gray-400 dark:text-gray-500">Never</span>
@@ -694,11 +753,10 @@ useEffect(() => {
                   <div
                     key={notification.id}
                     onClick={() => markNotificationAsRead(notification.id)}
-                    className={`p-4 border-b border-gray-200 dark:border-gray-700 cursor-pointer transition-colors ${
-                      notification.read 
-                        ? 'bg-white dark:bg-gray-800' 
+                    className={`p-4 border-b border-gray-200 dark:border-gray-700 cursor-pointer transition-colors ${notification.read
+                        ? 'bg-white dark:bg-gray-800'
                         : 'bg-blue-50 dark:bg-blue-900/10 hover:bg-blue-100 dark:hover:bg-blue-900/20'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-start space-x-3">
                       <span className="text-2xl">{getNotificationIcon(notification.type)}</span>

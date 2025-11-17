@@ -26,4 +26,4 @@ async function setAdminClaim(uid) {
 }
 
 // Replace this with the UID of the user you want to make admin
-setAdminClaim('F5bKitpTF4gnlLvydYFuGhEAVA92');
+setAdminClaim('e8WjPaLjLrUDNA6POtNlN098hmp1');

@@ -543,7 +543,7 @@ export default function Home() {
 
                 <div className="flex-1 flex justify-center">
                     <h1 className="text-lg md:text-xl font-bold text-gray-800 dark:text-gray-200 text-center">
-                        User Dashboard
+                        EMILLIO AGUINALDO COLLEGE GEOFENCE
                     </h1>
                 </div>
 
@@ -611,7 +611,7 @@ export default function Home() {
                             <div className="lg:hidden bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2 z-30 relative">
                                 <div className="flex justify-between items-center text-sm">
                                     <span className="text-gray-600 dark:text-gray-400">
-                                        {userId ? `Logged in as: ${userId}` : 'Not logged in'}
+                                        {userId ? `Logged in as: ${user.email}` : 'Not logged in'}
                                     </span>
                                     <button
                                         onClick={toggleMobileSidebar}
@@ -624,7 +624,7 @@ export default function Home() {
 
                             <div className="hidden lg:flex bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2 justify-between items-center z-30 relative">
                                 <span className="text-sm text-gray-600 dark:text-gray-400">
-                                    {userId ? `Logged in as: ${userId}` : 'Not logged in'}
+                                    {userId ? `Logged in as: ${user.email}` : 'Not logged in'}
                                 </span>
                                 <button
                                     onClick={toggleDesktopSidebar}

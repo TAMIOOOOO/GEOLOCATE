@@ -22,25 +22,22 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Local env files
+# ⚠️ CRITICAL: Environment Variables
 .env
 .env*.local
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
+server/.env
+server/.env.local
 
-# Vercel
-.vercel
-
-# Typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# ⚠️ CRITICAL: Firebase Admin Credentials
+# ⚠️ CRITICAL: Firebase Credentials
 server/serviceAccountkey.json
 serviceAccountkey.json
 **/serviceAccountkey.json
+firebase-adminsdk-*.json
 
 # Firebase cache
 .firebase/
@@ -69,3 +66,19 @@ server/logs/
 # Temporary files
 *.tmp
 .cache/
+
+# Vercel
+.vercel
+
+# Typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Database backups
+*.db
+*.sqlite
+backup/
+
+# Security sensitive files
+private/
+secrets/

@@ -1,0 +1,25 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid == $uid || auth.token.admin == true)",
+        ".write": "auth != null && (auth.uid == $uid || auth.token.admin == true)",
+        ".validate": "newData.hasChildren(['lat', 'lon', 'lastSeen'])"
+      }
+    },
+    "events": {
+      ".read": "auth != null && auth.token.admin == true",
+      ".write": "auth != null && auth.token.admin == true",
+      "entries": {
+        "$entryId": {
+          ".validate": "newData.hasChildren(['uid', 'timestamp', 'type'])"
+        }
+      },
+      "exits": {
+        "$exitId": {
+          ".validate": "newData.hasChildren(['uid', 'timestamp', 'type'])"
+        }
+      }
+    }
+  }
+}
