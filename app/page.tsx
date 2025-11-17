@@ -22,12 +22,12 @@ type LocationUpdate = {
 
 function UserSidebar({
     userId,
-    users,
+    userInfo,
     isOpen,
     onClose
 }: {
     userId: string | null;
-    users: Record<string, LocationUpdate>;
+    userInfo: LocationUpdate | null;
     isOpen: boolean;
     onClose: () => void;
 }) {
@@ -64,60 +64,64 @@ function UserSidebar({
                 <div className="hidden lg:block mb-4">
                     <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Your Information</h2>
                 </div>
+
                 <ul className="space-y-3">
-                    {Object.values(users).length > 0 ? (
-                        Object.values(users).map((u) => (
-                            <li key={u.id} className="flex flex-col p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm">
-                                <span className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{u.id}</span>
-                                <div className="mt-2 space-y-1">
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-gray-500 dark:text-gray-400">Lat:</span>
-                                        <span className="text-gray-700 dark:text-gray-300 font-mono">{u.lat?.toFixed(5) ?? "-"}</span>
-                                    </div>
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-gray-500 dark:text-gray-400">Lon:</span>
-                                        <span className="text-gray-700 dark:text-gray-300 font-mono">{u.lon?.toFixed(5) ?? "-"}</span>
-                                    </div>
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-gray-500 dark:text-gray-400">Accuracy:</span>
-                                        <span className="text-gray-700 dark:text-gray-300 font-mono">{u.accuracy?.toFixed(1) ?? "-"} m</span>
-                                    </div>
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-gray-500 dark:text-gray-400">Last inside:</span>
-                                        <span className="text-gray-700 dark:text-gray-300 text-right">
-                                            {u.lastInside ? new Date(u.lastInside).toLocaleTimeString() : "Never"}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-gray-500 dark:text-gray-400">Last updated:</span>
-                                        <span className="text-gray-700 dark:text-gray-300 text-right">
-                                            {u.lastSeen ? new Date(u.lastSeen).toLocaleTimeString() : "Never"}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-xs mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
-                                        <span className="text-gray-500 dark:text-gray-400">Status:</span>
-                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${isUserActive(u.lastSeen)
-                                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                            : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                                            }`}>
-                                            {isUserActive(u.lastSeen) ? "Active" : "Idle"}
-                                        </span>
-                                    </div>
+                    {userInfo ? (
+                        <li className="flex flex-col p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm">
+                            <span className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate mb-2">
+                                {userId || "Unknown User"}
+                            </span>
+                            <div className="mt-2 space-y-1">
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-gray-500 dark:text-gray-400">Lat:</span>
+                                    <span className="text-gray-700 dark:text-gray-300 font-mono">
+                                        {userInfo.lat?.toFixed(5) ?? "-"}
+                                    </span>
                                 </div>
-                            </li>
-                        ))
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-gray-500 dark:text-gray-400">Lon:</span>
+                                    <span className="text-gray-700 dark:text-gray-300 font-mono">
+                                        {userInfo.lon?.toFixed(5) ?? "-"}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-gray-500 dark:text-gray-400">Accuracy:</span>
+                                    <span className="text-gray-700 dark:text-gray-300 font-mono">
+                                        {userInfo.accuracy?.toFixed(1) ?? "-"} m
+                                    </span>
+                                </div>
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-gray-500 dark:text-gray-400">Last inside:</span>
+                                    <span className="text-gray-700 dark:text-gray-300 text-right">
+                                        {userInfo.lastInside ? new Date(userInfo.lastInside).toLocaleTimeString() : "Never"}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-gray-500 dark:text-gray-400">Last updated:</span>
+                                    <span className="text-gray-700 dark:text-gray-300 text-right">
+                                        {userInfo.lastSeen ? new Date(userInfo.lastSeen).toLocaleTimeString() : "Never"}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+                                    <span className="text-gray-500 dark:text-gray-400">Status:</span>
+                                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${isUserActive(userInfo.lastSeen)
+                                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                        : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                                        }`}>
+                                        {isUserActive(userInfo.lastSeen) ? "Active" : "Idle"}
+                                    </span>
+                                </div>
+                            </div>
+                        </li>
                     ) : (
                         <li className="text-center py-8 text-gray-500 dark:text-gray-400">
                             <svg className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            <p className="mt-2 text-sm">Waiting for coordinates…</p>
+                            <p className="mt-2 text-sm">Waiting for location data…</p>
                         </li>
                     )}
                 </ul>
-                
-
-
             </aside>
         </>
     );
@@ -126,7 +130,6 @@ function UserSidebar({
 export default function Home() {
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<any>(null);
-    const markersRef = useRef<Record<string, any>>({});
     const userMarkerRef = useRef<any>(null);
     const accuracyCircleRef = useRef<any>(null);
     const socketRef = useRef<Socket | null>(null);
@@ -142,7 +145,7 @@ export default function Home() {
     const [schoolId, setSchoolId] = useState("");
     const [password, setPassword] = useState("");
     const [statusHtml, setStatusHtml] = useState("Connecting...");
-    const [users, setUsers] = useState<Record<string, LocationUpdate>>({});
+    const [userInfo, setUserInfo] = useState<LocationUpdate | null>(null);
     const [Leaflet, setLeaflet] = useState<any>(null);
     const [isRegister, setIsRegister] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -270,79 +273,6 @@ export default function Home() {
                     setStatusHtml(`Error: ${error}`);
                 });
 
-                socket.on("currentUsers", (existingUsers: Record<string, LocationUpdate>) => {
-                    setUsers(existingUsers);
-                });
-
-                // CRITICAL: Listen for locationConfirmed to update sidebar
-                socket.on("locationConfirmed", (data: any) => {
-                    console.log("Location confirmed:", data);
-                    setUsers((prev) => ({
-                        ...prev,
-                        [data.id]: data
-                    }));
-                });
-
-                socket.on("userLocationUpdate", (data: LocationUpdate) => {
-                    const id = data.id ?? "unknown";
-                    const lat = data.lat != null ? Number(data.lat) : undefined;
-                    const lon = data.lon != null ? Number(data.lon) : undefined;
-                    const accuracy = data.accuracy != null ? Number(data.accuracy) : undefined;
-
-                    let lastInside = data.lastInside;
-                    const lastSeen = new Date().toISOString();
-
-                    if (!isNaN(lat ?? NaN) && !isNaN(lon ?? NaN) && Leaflet && leafletMapRef.current) {
-                        const L = Leaflet;
-                        const polyCoords = eacPolygon.map(([lat, lon]) => [lon, lat] as [number, number]);
-                        const pt = turf.point([lon!, lat!]);
-                        const poly = turf.polygon([polyCoords]);
-                        const inside = turf.booleanPointInPolygon(pt, poly);
-
-                        if (inside) lastInside = new Date().toISOString();
-
-                        if (id !== userId) {
-                            if (markersRef.current[id]) {
-                                markersRef.current[id].setLatLng([lat!, lon!]);
-                            } else {
-                                const marker = L.circleMarker([lat!, lon!], {
-                                    radius: 6,
-                                    color: '#dc2626',
-                                    fillColor: '#ef4444',
-                                    fillOpacity: 0.8,
-                                    weight: 2
-                                });
-                                marker.addTo(leafletMapRef.current);
-                                markersRef.current[id] = marker;
-                            }
-
-                            try {
-                                markersRef.current[id].bindPopup(
-                                    `${id}<br>📍 ${inside ? "✅ Inside" : "❌ Outside"}<br>Accuracy: ${accuracy?.toFixed(1) ?? "-"} m`
-                                );
-                            } catch { }
-                        }
-                    }
-
-                    setUsers((prev) => ({
-                        ...prev,
-                        [id]: { id, lat, lon, accuracy, lastInside, lastSeen },
-                    }));
-                });
-
-                socket.on("userDisconnected", (id: string) => {
-                    const marker = markersRef.current[id];
-                    if (marker && leafletMapRef.current) {
-                        try { leafletMapRef.current.removeLayer(marker); } catch { }
-                        delete markersRef.current[id];
-                    }
-                    setUsers((prev) => {
-                        const copy = { ...prev };
-                        delete copy[id];
-                        return copy;
-                    });
-                });
-
                 const heartbeat = setInterval(() => {
                     if (socket?.connected) {
                         socket.emit("heartbeat", {});
@@ -423,6 +353,18 @@ export default function Home() {
                         if (!isNaN(latitude) && !isNaN(longitude)) {
                             updateUserMarker(latitude, longitude, accuracy);
 
+                            // Update local state immediately
+                            const now = new Date().toISOString();
+                            setUserInfo({
+                                id: userId,
+                                lat: latitude,
+                                lon: longitude,
+                                accuracy,
+                                lastSeen: now,
+                                lastInside: userInfo?.lastInside
+                            });
+
+                            // Send to server
                             socketRef.current?.emit("locationUpdate", {
                                 id: userId,
                                 lat: latitude,
@@ -462,15 +404,9 @@ export default function Home() {
                     leafletMapRef.current?.removeLayer(accuracyCircleRef.current);
                     accuracyCircleRef.current = null;
                 }
-                Object.values(markersRef.current).forEach((m: any) => {
-                    if (leafletMapRef.current && m) {
-                        try { leafletMapRef.current.removeLayer(m); } catch { }
-                    }
-                });
-                markersRef.current = {};
             } catch { }
         };
-    }, [started, Leaflet, userId, updateUserMarker]);
+    }, [started, Leaflet, userId, updateUserMarker, userInfo]);
 
     const handleStart = async () => {
         const email = schoolId.trim() + "@school.edu";
@@ -514,6 +450,7 @@ export default function Home() {
         setSidebarOpen(false);
         setDesktopSidebarVisible(false);
         setUserLocation(null);
+        setUserInfo(null);
     };
 
     const toggleMobileSidebar = () => setSidebarOpen((s) => !s);
@@ -602,7 +539,7 @@ export default function Home() {
                 {started && (
                     <UserSidebar
                         userId={userId}
-                        users={users}
+                        userInfo={userInfo}
                         isOpen={sidebarOpen || desktopSidebarVisible}
                         onClose={closeMobileSidebar}
                     />

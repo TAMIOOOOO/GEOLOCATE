@@ -15,22 +15,23 @@ export default function AuthForm() {
     const [error, setError] = useState(null);
     const router = useRouter();
 
+    // app/login/AuthForm.js - REMOVE socketRef reference
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError(null);
 
         try {
             if (isLogin) {
-                // Attempt to log in existing user
                 await signInWithEmailAndPassword(auth, email, password);
             } else {
-                // Attempt to create a new user
                 await createUserWithEmailAndPassword(auth, email, password);
             }
             const user = auth.currentUser;
-            const idToken = await user.getIdToken(true); // Get the Firebase ID Token
-            socketRef.current?.emit("firebase_login", { idToken: idToken });
-            // Exchange the ID Token for a server session cookie
+            const idToken = await user.getIdToken(true);
+
+            // REMOVE THIS LINE - socketRef doesn't exist here
+            // socketRef.current?.emit("firebase_login", { idToken: idToken });
+
             await fetch('/api/auth', {
                 method: 'POST',
                 headers: {
@@ -39,15 +40,10 @@ export default function AuthForm() {
                 body: JSON.stringify({ idToken }),
             });
 
-            // On success, redirect to the dashboard
-            router.push('/dashboard');
-
-            // On success, redirect to the dashboard
             router.push('/dashboard');
 
         } catch (err) {
             console.error(err);
-            // Display a user-friendly error message
             setError(err.message);
         }
     };

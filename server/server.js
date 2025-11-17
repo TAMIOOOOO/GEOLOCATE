@@ -188,71 +188,63 @@ io.on('connection', (socket) => {
     const UPDATE_INTERVAL_MS = 5000; // 5 seconds per user
 
     // In server.js, inside io.on('connection', (socket) => { ... })
-socket.on('locationUpdate', async (data) => {
-    const { lat, lon, accuracy } = data;
+    // server/server.js - Fix broadcast
+    socket.on('locationUpdate', async (data) => {
+        const { lat, lon, accuracy } = data;
 
-    if (!lat || !lon || isNaN(lat) || isNaN(lon)) return;
+        if (!lat || !lon || isNaN(lat) || isNaN(lon)) return;
 
-    const now = new Date().toISOString();
-    const userLocation = turf.point([lon, lat]);
-    const polygonFeature = turf.polygon([eacPolygon.map(([lat, lon]) => [lon, lat])]);
-    const isInside = turf.booleanPointInPolygon(userLocation, polygonFeature);
+        const now = new Date().toISOString();
+        const userLocation = turf.point([lon, lat]);
+        const polygonFeature = turf.polygon([eacPolygon.map(([lat, lon]) => [lon, lat])]);
+        const isInside = turf.booleanPointInPolygon(userLocation, polygonFeature);
 
-    const prevUser = users[uid] || {};
-    const wasInside = prevUser.lastInside !== undefined;
-    const oldStatus = wasInside ? "Inside" : "Outside";
-    const newStatus = isInside ? "Inside" : "Outside";
+        const prevUser = users[uid] || {};
+        const wasInside = prevUser.lastInside !== undefined;
 
-    // Only update if data changed significantly or time threshold passed
-    const shouldUpdate = 
-        !prevUser.lat || !prevUser.lon ||
-        prevUser.lat !== lat ||
-        prevUser.lon !== lon ||
-        prevUser.accuracy !== accuracy ||
-        (prevUser.lastUpdate && (new Date(now) - new Date(prevUser.lastUpdate)) > 5000); // 5s throttle
+        // Update in-memory user object
+        users[uid] = {
+            lat,
+            lon,
+            accuracy,
+            lastInside: isInside ? now : undefined,
+            lastSeen: now,
+        };
 
-    if (!shouldUpdate) return; // Skip update if nothing changed
+        // Write to Firebase
+        await db.ref(`users/${uid}`).set({
+            lat,
+            lon,
+            accuracy,
+            lastInside: users[uid].lastInside || null,
+            lastSeen: now,
+            email: email || null
+        });
 
-    // Update in-memory user object
-    users[uid] = {
-        lat,
-        lon,
-        accuracy,
-        lastInside: isInside ? (prevUser.lastInside || now) : undefined,
-        lastSeen: now,
-        lastUpdate: now, // track last update timestamp
-    };
+        // CRITICAL FIX: Emit to admin_room with proper data
+        io.to('admin_room').emit('userLocationUpdate', {
+            id: uid,
+            lat,
+            lon,
+            accuracy,
+            lastInside: users[uid].lastInside,
+            lastSeen: now
+        });
 
-    // Safely write to Firebase (replace undefined with null)
-    await db.ref(`users/${uid}`).set({
-        lat,
-        lon,
-        accuracy,
-        lastInside: users[uid].lastInside || null,
-        lastSeen: now,
-        email: email || null
+        // Entry detection
+        if (!wasInside && isInside) {
+            console.log(`📍 User ${uid} ENTERED the geofence`);
+            await db.ref('events/entries').push({ uid, lat, lon, timestamp: now, type: "entry" });
+            io.to('admin_room').emit('userEntered', { id: uid, time: now, lat, lon, email });
+        }
+
+        // Exit detection
+        if (wasInside && !isInside) {
+            console.log(`📍 User ${uid} EXITED the geofence`);
+            await db.ref('events/exits').push({ uid, lat, lon, timestamp: now, type: "exit" });
+            io.to('admin_room').emit('userExited', { id: uid, time: now, lat, lon, email });
+        }
     });
-
-    // Broadcast to admin room
-    console.log('Broadcasting to admins:', { id: uid, ...users[uid] });
-    io.to('admin_room').emit('userLocationUpdate', { id: uid, ...users[uid] });
-
-
-    // Detect entry event
-    if (oldStatus === "Outside" && newStatus === "Inside") {
-        console.log(`📍 User ${uid} ENTERED the geofence at (${lat.toFixed(5)}, ${lon.toFixed(5)})`);
-        await db.ref('events/entries').push({ uid, lat, lon, timestamp: now, type: "entry" });
-        io.to('admin_room').emit('userEntered', { id: uid, time: now, lat, lon, email });
-    }
-
-    // Detect exit event
-    if (oldStatus === "Inside" && newStatus === "Outside" && wasInside) {
-        console.log(`📍 User ${uid} EXITED the geofence at (${lat.toFixed(5)}, ${lon.toFixed(5)})`);
-        await db.ref('events/exits').push({ uid, lat, lon, timestamp: now, type: "exit" });
-        io.to('admin_room').emit('userExited', { id: uid, time: now, lat, lon, email });
-        users[uid].lastInside = undefined;
-    }
-});
 
 
 
